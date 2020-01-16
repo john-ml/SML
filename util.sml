@@ -28,7 +28,7 @@ Naming scheme: for some signature M,
 (* -------------------- Semigroup & co. -------------------- *)
 
 signature Sgp = sig
-  type 'a t
+  type 'a t (* 'a for extra info since no HKTs *)
   val dot : 'a t * 'a t -> 'a t
 end
 
@@ -80,6 +80,31 @@ structure MndEndo : Mnd = struct
   type 'a t = 'a -> 'a
   val dot = (op o)
   fun e x = x
+end
+
+(* ---------- Products ---------- *)
+
+functor SgpTup(structure A : Sgp; structure B : Sgp) : Sgp = struct
+  type 'e t = 'e A.t * 'e B.t
+  fun dot((x1, y1), (x2, y2)) = (A.dot(x1, x2), B.dot(y1, y2))
+end
+
+functor MndTup(structure A : Mnd; structure B : Mnd) : Mnd = let
+  structure S = SgpTup(structure A = A; structure B = B)
+in
+  struct
+    open S
+    val e = (A.e, B.e)
+  end
+end
+
+functor GrpTup(structure A : Grp; structure B : Grp) : Grp = let
+  structure S = MndTup(structure A = A; structure B = B)
+in
+  struct
+    open S
+    fun inv(x, y) = (A.inv x, B.inv y)
+  end
 end
 
 (* -------------------- Functor -------------------- *)
@@ -333,64 +358,20 @@ end
 (* -------------------- Tests -------------------- *)
 
 structure Tests = struct
+  exception Chk
+  fun chk(x, y) = if x = y then () else raise Chk
   structure C = MonCPS
-  fun product [] = C.ret 1
+  fun product[] = C.ret 1
     | product(0 :: xs) = C.shift(fn _ => 0)
     | product(x :: xs) = C.bind(product xs, fn y => C.ret(x*y))
-  val 12 = C.run(product [2, 2, 3])
-  val 0 = C.run(product [1, 2, 0, 3])
-  val 0 = C.run(C.map(fn x => x + 3, product [1, 2, 0, 3]))
-  val 3 = C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3])))
-  fun find_zero [] = C.ret false
+  val _ = chk(12, C.run(product[2, 2, 3]))
+  val _ = chk(0, C.run(product[1, 2, 0, 3]))
+  val _ = chk(0, C.run(C.map(fn x => x + 3, product[1, 2, 0, 3])))
+  val _ = chk(3, C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3]))))
+  fun find_zero[] = C.ret false
     | find_zero(0 :: _) = C.shift(fn _ => true)
     | find_zero(_ :: xs) = find_zero xs
-  val false = C.run(find_zero [2, 2, 3])
-  val true = C.run(find_zero [1, 2, 0, 3])
-  val 1 = C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero [1, 2, 0, 3])))
+  val _ = chk(false, C.run(find_zero[2, 2, 3]))
+  val _ = chk(true, C.run(find_zero[1, 2, 0, 3]))
+  val _ = chk(1, C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero[1, 2, 0, 3]))))
 end
-
-(* -------------------- Misc. -------------------- *)
-
-functor MkOrdProd(structure A : MkTOrd; structure B : MkTOrd) : TOrd = MkTOrd(struct
-  type 'a t = 'a A.t * 'a B.t
-  fun cmp((x1, y1), (x2, y2)) = case A.cmp(x1, x2) of Eq => B.cmp(y1, y2) | c => c
-end)
-
-functor MkOrdSum(structure A : MkTOrd; structure B : MkTOrd) : TOrd = MkTOrd(struct
-  type 'a t = ('a A.t, 'a B.t) sum
-  fun cmp(Inl x1, Inl x2) = A.cmp(x1, x2)
-    | cmp(Inr y1, Inr y2) = B.cmp(y1, y2)
-    | cmp(Inl _, Inr _) = Lt
-    | cmp(Inr _, Inl _) = Gt
-end)
-
-signature Fix = sig
-  include Fun
-  datatype 'e t = Fix of ('e, 'e t) f
-  val fold : (('e, 'a) f -> 'a) * 'e t -> 'a
-end
-
-functor MkFix(M : Fun) : Fix = struct
-  open M
-  datatype 'e t = Fix of ('e, 'e t) f
-  fun fold(g, Fix fx) = g(map(fn x => fold(g, x), fx))
-end
-
-structure FixList : Fix = MkFix(struct
-  type ('e, 'a) f = (unit, 'e * 'a) sum
-  fun map(f, Inl _) = Inl()
-    | map(f, Inr(x, xs)) = Inr(x, f xs)
-end)
-
-structure MiscTests = struct
-  structure L = FixList
-  val xs = L.Fix(Inr(3, L.Fix(Inr(4, L.Fix(Inr(5, L.Fix(Inl())))))))
-  val fifty = L.fold(fn Inl _ => 0 | Inr(x, xs) => x*x + xs, xs)
-end
-
-(* TODO
-functor MkOrdFix(structure F : Fix) : TOrd = MkTOrd(struct
-  type t = F.t
-  fun cmp(F.Fix fx, F.Fix fy) = Eq
-end) *)
-

@@ -342,7 +342,7 @@ signature Lattice = sig
   val meet : 'a t * 'a t -> 'a t
 end
 
-functor TOrdLattice(M : TOrd) : Lattice = let
+functor TOrdLattice(M : MkTOrd) : Lattice = let
   structure P = MkPOrd(struct
     type 'a t = 'a M.t
     fun cmp xy = Some(M.cmp xy)
@@ -355,6 +355,85 @@ in
   end
 end
 
+(* -------------------- Okasaki's skew-binary random-access lists -------------------- *)
+
+signature RList = sig
+  type 'a t
+  exception Index
+  exception Empty
+  val new : 'a t
+  val cons : 'a * 'a t -> 'a t
+  val ucons : 'a t -> ('a * 'a t) opt
+  val hd : 'a t -> 'a opt
+  val tl : 'a t -> 'a t opt
+  val get : 'a t * int -> 'a opt
+  val set : 'a t * int * 'a -> 'a t opt
+  val ucons_ : 'a t -> 'a * 'a t
+  val hd_ : 'a t -> 'a
+  val tl_ : 'a t -> 'a t
+  val get_ : 'a t * int -> 'a
+  val set_ : 'a t * int * 'a -> 'a t
+end
+
+structure RList : RList = struct
+  datatype 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
+  type 'a t = (int * 'a tree) list
+  exception Empty
+  exception Index
+  exception RListInternal
+
+  val new = []
+
+  fun cons(x, ts as (v, l) :: (w, r) :: ts') =
+      if v = w
+      then ((1 + v + w, Node(l, x, r)) :: ts')
+      else (1, Leaf x) :: ts
+    | cons(x, ts) = (1, Leaf x) :: ts
+
+  fun ucons_[] = raise Empty
+    | ucons_((1, Leaf x) :: ts) = (x, ts)
+    | ucons_((w, Node(l, x, r)) :: ts) = (x, (w div 2, l) :: (w div 2, r) :: ts)
+    | ucons_((_, _) :: _) = raise RListInternal
+
+  fun hd_ xs = let val (x, _) = ucons_ xs in x end
+  fun tl_ xs = let val (_, xs) = ucons_ xs in xs end
+
+  fun ucons xs = Some (ucons_ xs) handle Empty => None
+  fun hd xs = Some (hd_ xs) handle Empty => None
+  fun tl xs = Some (tl_ xs) handle Empty => None
+
+  fun get_tree_(1, Leaf x, 0) = x
+    | get_tree_(1, Leaf _, _) = raise Index
+    | get_tree_(_, Node(_, x, _), 0) = x
+    | get_tree_(w, Node(l, x, r), i) =
+      if i < w div 2
+      then get_tree_(w div 2, l, i - 1)
+      else get_tree_(w div 2, r, i - 1 - w div 2)
+    | get_tree_ _ = raise RListInternal
+
+  fun get_([], _) = raise Index
+    | get_((w, t) :: ts, i) = if i < w then get_tree_(w, t, i) else get_(ts, i - w)
+
+  fun set_tree_(1, Leaf x, 0, y) = Leaf y
+    | set_tree_(1, Leaf _, _, _) = raise Index
+    | set_tree_(_, Node(l, _, r), 0, y) = Node(l, y, r)
+    | set_tree_(w, Node(l, x, r), i, y) =
+      if i < w div 2
+      then Node(set_tree_(w div 2, l, i - 1, y), x, r)
+      else Node(l, x, set_tree_(w div 2, r, i - 1 - w div 2, y))
+    | set_tree_ _ = raise RListInternal
+
+  fun set_([], _, _) = raise Index
+    | set_((w, t) :: ts, i, y) =
+      if i < w
+      then (w, set_tree_(w, t, i, y)) :: ts
+      else (w, t) :: set_(ts, i - w, y)
+
+  fun get xsi = Some (get_ xsi) handle Index => None
+  fun set xsiy = Some (set_ xsiy) handle Index => None
+  
+end
+
 (* -------------------- Tests -------------------- *)
 
 structure Tests = struct
@@ -363,7 +442,7 @@ structure Tests = struct
   structure C = MonCPS
   fun product[] = C.ret 1
     | product(0 :: xs) = C.shift(fn _ => 0)
-    | product(x :: xs) = C.bind(product xs, fn y => C.ret(x*y))
+    | product(x :: xs) = C.map(fn y => x*y, product xs)
   val _ = chk(12, C.run(product[2, 2, 3]))
   val _ = chk(0, C.run(product[1, 2, 0, 3]))
   val _ = chk(0, C.run(C.map(fn x => x + 3, product[1, 2, 0, 3])))

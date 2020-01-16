@@ -361,7 +361,7 @@ signature RList = sig
   type 'a t
   exception Index
   exception Empty
-  val new : 'a t
+  val emp : 'a t
   val cons : 'a * 'a t -> 'a t
   val ucons : 'a t -> ('a * 'a t) opt
   val hd : 'a t -> 'a opt
@@ -382,7 +382,7 @@ structure RList : RList = struct
   exception Index
   exception RListInternal
 
-  val new = []
+  val emp = []
 
   fun cons(x, ts as (v, l) :: (w, r) :: ts') =
       if v = w
@@ -406,9 +406,11 @@ structure RList : RList = struct
     | get_tree_(1, Leaf _, _) = raise Index
     | get_tree_(_, Node(_, x, _), 0) = x
     | get_tree_(w, Node(l, x, r), i) =
-      if i < w div 2
-      then get_tree_(w div 2, l, i - 1)
-      else get_tree_(w div 2, r, i - 1 - w div 2)
+      let val i = i - 1 in
+        if i < w div 2
+        then get_tree_(w div 2, l, i)
+        else get_tree_(w div 2, r, i - w div 2)
+      end
     | get_tree_ _ = raise RListInternal
 
   fun get_([], _) = raise Index
@@ -418,9 +420,11 @@ structure RList : RList = struct
     | set_tree_(1, Leaf _, _, _) = raise Index
     | set_tree_(_, Node(l, _, r), 0, y) = Node(l, y, r)
     | set_tree_(w, Node(l, x, r), i, y) =
-      if i < w div 2
-      then Node(set_tree_(w div 2, l, i - 1, y), x, r)
-      else Node(l, x, set_tree_(w div 2, r, i - 1 - w div 2, y))
+      let val i = i - 1 in
+        if i < w div 2
+        then Node(set_tree_(w div 2, l, i, y), x, r)
+        else Node(l, x, set_tree_(w div 2, r, i - w div 2, y))
+      end
     | set_tree_ _ = raise RListInternal
 
   fun set_([], _, _) = raise Index
@@ -431,7 +435,6 @@ structure RList : RList = struct
 
   fun get xsi = Some (get_ xsi) handle Index => None
   fun set xsiy = Some (set_ xsiy) handle Index => None
-  
 end
 
 (* -------------------- Tests -------------------- *)
@@ -453,4 +456,6 @@ structure Tests = struct
   val _ = chk(false, C.run(find_zero[2, 2, 3]))
   val _ = chk(true, C.run(find_zero[1, 2, 0, 3]))
   val _ = chk(1, C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero[1, 2, 0, 3]))))
+  structure L = RList
+  val xs = L.cons(1, L.cons(2, L.cons(3, L.emp)))
 end

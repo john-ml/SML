@@ -175,7 +175,7 @@ end)
 structure MonList : Mon = MkMon(struct
   type ('e, 'a) f = 'a list
   fun ret x = [x]
-  fun bind(xs, f) = List.concatMap f xs
+  fun bind(xs, f) = List.concat (List.map f xs)
 end)
 
 structure MonSt : Mon = MkMon(struct
@@ -341,7 +341,6 @@ structure Tests = struct
   val 0 = C.run(product [1, 2, 0, 3])
   val 0 = C.run(C.map(fn x => x + 3, product [1, 2, 0, 3]))
   val 3 = C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3])))
-
   fun find_zero [] = C.ret false
     | find_zero(0 :: _) = C.shift(fn _ => true)
     | find_zero(_ :: xs) = find_zero xs

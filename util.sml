@@ -178,6 +178,34 @@ structure MonList : Mon = MkMon(struct
   fun bind(xs, f) = List.concatMap f xs
 end)
 
+structure MonSt : Mon = MkMon(struct
+  type ('e, 'a) f = 'e -> 'e * 'a
+  fun ret x s = (s, x)
+  fun bind(m, f) s = let val (s, x) = m s in f x s end
+end)
+
+signature CPS = sig
+  include Mon
+  val run : ('a, 'a) f -> 'a
+  val shift : (('a -> 'r) -> 'r) -> ('r, 'a) f
+  val reset : ('a, 'a) f -> ('r, 'a) f
+end
+
+structure MonCPS : CPS = let
+  structure M = MkMon(struct
+    type ('r, 'a) f = ('a -> 'r) -> 'r
+    fun ret x k = k x
+    fun bind(m, f) k = m(fn x => f x k)
+  end)
+in
+  struct
+    open M
+    fun run m = m(fn x => x)
+    fun shift f k = f k
+    fun reset m k = k(run m)
+  end
+end
+
 (* -------------------- Orders -------------------- *)
 
 signature Ord = sig
@@ -304,6 +332,24 @@ end
 
 (* -------------------- Tests -------------------- *)
 
+structure Tests = struct
+  structure C = MonCPS
+  fun product [] = C.ret 1
+    | product(0 :: xs) = C.shift(fn _ => 0)
+    | product(x :: xs) = C.bind(product xs, fn y => C.ret(x*y))
+  val 12 = C.run(product [2, 2, 3])
+  val 0 = C.run(product [1, 2, 0, 3])
+  val 0 = C.run(C.map(fn x => x + 3, product [1, 2, 0, 3]))
+  val 3 = C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3])))
+
+  fun find_zero [] = C.ret false
+    | find_zero(0 :: _) = C.shift(fn _ => true)
+    | find_zero(_ :: xs) = find_zero xs
+  val false = C.run(find_zero [2, 2, 3])
+  val true = C.run(find_zero [1, 2, 0, 3])
+  val 1 = C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero [1, 2, 0, 3])))
+end
+
 (* -------------------- Misc. -------------------- *)
 
 functor MkOrdProd(structure A : MkTOrd; structure B : MkTOrd) : TOrd = MkTOrd(struct
@@ -337,7 +383,7 @@ structure FixList : Fix = MkFix(struct
     | map(f, Inr(x, xs)) = Inr(x, f xs)
 end)
 
-structure Tests = struct
+structure MiscTests = struct
   structure L = FixList
   val xs = L.Fix(Inr(3, L.Fix(Inr(4, L.Fix(Inr(5, L.Fix(Inl())))))))
   val fifty = L.fold(fn Inl _ => 0 | Inr(x, xs) => x*x + xs, xs)

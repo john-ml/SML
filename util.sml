@@ -368,14 +368,16 @@ signature RList = sig
   val tl : 'a t -> 'a t opt
   val get : 'a t * int -> 'a opt
   val set : 'a t * int * 'a -> 'a t opt
+  val upd : 'a t * int * ('a -> 'a) -> 'a t opt
   val ucons_ : 'a t -> 'a * 'a t
   val hd_ : 'a t -> 'a
   val tl_ : 'a t -> 'a t
   val get_ : 'a t * int -> 'a
   val set_ : 'a t * int * 'a -> 'a t
+  val upd_ : 'a t * int * ('a -> 'a) -> 'a t
 end
 
-structure RList : RList = struct
+structure RList :> RList = struct
   datatype 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
   type 'a t = (int * 'a tree) list
   exception Empty
@@ -384,12 +386,14 @@ structure RList : RList = struct
 
   val emp = []
 
+  (* O(1) *)
   fun cons(x, ts as (v, l) :: (w, r) :: ts') =
       if v = w
       then ((1 + v + w, Node(l, x, r)) :: ts')
       else (1, Leaf x) :: ts
     | cons(x, ts) = (1, Leaf x) :: ts
 
+  (* O(1) *)
   fun ucons_[] = raise Empty
     | ucons_((1, Leaf x) :: ts) = (x, ts)
     | ucons_((w, Node(l, x, r)) :: ts) = (x, (w div 2, l) :: (w div 2, r) :: ts)
@@ -413,28 +417,77 @@ structure RList : RList = struct
       end
     | get_tree_ _ = raise RListInternal
 
+  (* O(min(i, log(n))) *)
   fun get_([], _) = raise Index
     | get_((w, t) :: ts, i) = if i < w then get_tree_(w, t, i) else get_(ts, i - w)
 
-  fun set_tree_(1, Leaf x, 0, y) = Leaf y
-    | set_tree_(1, Leaf _, _, _) = raise Index
-    | set_tree_(_, Node(l, _, r), 0, y) = Node(l, y, r)
-    | set_tree_(w, Node(l, x, r), i, y) =
+  fun upd_tree_(1, Leaf x, 0, f) = Leaf(f x)
+    | upd_tree_(1, Leaf _, _, _) = raise Index
+    | upd_tree_(_, Node(l, x, r), 0, f) = Node(l, f x, r)
+    | upd_tree_(w, Node(l, x, r), i, f) =
       let val i = i - 1 in
         if i < w div 2
-        then Node(set_tree_(w div 2, l, i, y), x, r)
-        else Node(l, x, set_tree_(w div 2, r, i - w div 2, y))
+        then Node(upd_tree_(w div 2, l, i, f), x, r)
+        else Node(l, x, upd_tree_(w div 2, r, i - w div 2, f))
       end
-    | set_tree_ _ = raise RListInternal
+    | upd_tree_ _ = raise RListInternal
 
-  fun set_([], _, _) = raise Index
-    | set_((w, t) :: ts, i, y) =
+  (* O(min(i, log(n))) *)
+  fun upd_([], _, _) = raise Index
+    | upd_((w, t) :: ts, i, f) =
       if i < w
-      then (w, set_tree_(w, t, i, y)) :: ts
-      else (w, t) :: set_(ts, i - w, y)
+      then (w, upd_tree_(w, t, i, f)) :: ts
+      else (w, t) :: upd_(ts, i - w, f)
 
-  fun get xsi = Some (get_ xsi) handle Index => None
-  fun set xsiy = Some (set_ xsiy) handle Index => None
+  fun set_(xs, i, y) = upd_(xs, i, fn _ => y)
+
+  fun get xsi = Some(get_ xsi) handle Index => None
+  fun upd xsif = Some(upd_ xsif) handle Index => None
+  fun set xsiy = Some(set_ xsiy) handle Index => None
+end
+
+(* -------------------- Maps -------------------- *)
+
+(* The general signature of maps *)
+signature Map = sig
+  exception NotFound
+  type k (* The type of keys *)
+  type 'a t
+  val emp : 'a t
+  val get : 'a t * k -> 'a opt
+  val get_ : 'a t * k -> 'a
+  val set : 'a t * k * 'a -> 'a t
+  val upd : 'a t * k * ('a -> 'a) -> 'a t
+  val del : 'a t * k -> 'a t
+  val adj : 'a t * k * ('a opt -> 'a opt) -> 'a t
+  val union : 'a t * 'a t -> 'a t
+  val inter : 'a t * 'a t -> 'a t
+  val diff : 'a t * 'a t -> 'a t
+  val map : ('a -> 'b) * 'a t -> 'b t
+end
+
+(* Functional maps *)
+functor MapFun(type k; val eq : k -> k -> bool) : Map = struct
+  exception NotFound
+  type k = k
+  type 'a t = k -> 'a
+  fun emp _ = raise NotFound
+  fun get_(m, k) = m k
+  fun get(m, k) = Some(get_(m, k)) handle NotFound => None
+  fun set(m, k, v) k' = if eq k k' then v else m k'
+  fun upd(m, k, f) k' = if eq k k' then f(m k') else m k'
+  fun del(m, k) k' = if eq k k' then raise NotFound else m k'
+  fun adj(m, k, f) k' =
+    case f(get(m, k))
+    of Some v => v
+     | None => raise NotFound
+  fun union(m, n) k = m k handle NotFound => n k
+  fun inter(m, n) k = let val r = m k val _ = n k in r end
+  fun diff(m, n) k =
+    case get(m, k) & get(n, k)
+    of Some v & None => v
+     | _ => raise NotFound
+  fun map(f, m) k = f(m k)
 end
 
 (* -------------------- Tests -------------------- *)

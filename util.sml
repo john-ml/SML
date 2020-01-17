@@ -551,7 +551,7 @@ functor ExtMapFun(type 'e k; val eq : 'e k -> 'e k -> bool) : ExtMap = struct
   fun map(f, m) k = f(m k)
 end
 
-(* Tries for products *)
+(* Map for product *)
 functor MapProd(structure A : Map; structure B : Map) : Map = struct
   exception NotFound
   type 'e k = 'e A.k * 'e B.k
@@ -564,7 +564,7 @@ functor MapProd(structure A : Map; structure B : Map) : Map = struct
       | Some m => Some(B.adj(m, y, f)))
 end
 
-(* Tries for sums *)
+(* Map for sum *)
 functor MapSum(structure A : Map; structure B : Map) : Map = struct
   exception NotFound
   type 'e k = ('e A.k, 'e B.k) sum
@@ -576,7 +576,7 @@ functor MapSum(structure A : Map; structure B : Map) : Map = struct
     | adj((ma, mb), Inr x, f) = (ma, B.adj(mb, x, f))
 end
 
-(* Tries for opt *)
+(* Map for opt *)
 functor MapOpt(A : Map) : Map = struct
   exception NotFound
   type 'e k = 'e A.k opt
@@ -589,7 +589,7 @@ functor MapOpt(A : Map) : Map = struct
     | adj((v, m), Some x, f) = (v, A.adj(m, x, f))
 end
 
-(* Tries for lists *)
+(* Map for list *)
 functor MapList(A : Map) : Map = struct
   exception NotFound
   type 'e k = 'e A.k list
@@ -605,7 +605,7 @@ functor MapList(A : Map) : Map = struct
         | None => Some(adj(emp, xs, f))))
 end
 
-(* Tries for lazy lists *)
+(* Map for lazy list *)
 functor MapLList(A : Map) : Map = struct
   exception NotFound
   type 'e k = 'e A.k LList.t
@@ -625,7 +625,7 @@ functor MapLList(A : Map) : Map = struct
          | None => Some(adj(emp, xs, f))))
 end
 
-(* Tries for fixpoints *)
+(* Map from fixpoints *)
 signature MapFixExtArg = sig
   structure F : FixExt
   (* A map for one "layer" of F.f *)
@@ -694,3 +694,17 @@ structure PolyRecTests = struct
     of End => End
      | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
 end *)
+
+structure ListTrieTests = struct
+  structure ListF = struct
+    datatype ('e, 'a) f = NilF | ConsF of 'e * 'a
+    fun map(_, NilF) = NilF
+      | map(f, ConsF(x, xs)) = ConsF(x, f xs)
+  end
+  structure FixExtListF : FixExt = struct
+    open ListF
+    datatype 'e t = Fix of ('e, 'e t) f
+    fun fold(Fix xs, g) = g(map(fn x => fold(x, g), xs))
+    (* val subs : 'e t -> 'e t LList.t *)
+  end
+end

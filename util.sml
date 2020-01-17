@@ -669,21 +669,6 @@ functor MapOpt(A' : MkMap) : Map = MapRep(struct
   structure M = MapSum(structure A = MapUnit; structure B = A')
 end)
 
-(* Map for list *)
-functor MapList(A : MkMap) : Map = MkMap(struct
-  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k list
-  datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
-  val emp = M(None, A.emp)
-  fun get_(M(Some v, _), []) = v
-    | get_(M(_, m), x::xs) = get_(A.get_(m, x), xs)
-    | get_ _ = raise NotFound
-  fun adj(M(v, m), [], f) = M(f v, m)
-    | adj(M(v, m), x::xs, f) =
-      M(v, A.adj(m, x,
-       fn Some m => Some(adj(m, xs, f))
-        | None => Some(adj(emp, xs, f))))
-end)
-
 (* Map for lazy list *)
 functor MapLList(A : MkMap) : Map = MkMap(struct
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k LList.t
@@ -703,7 +688,7 @@ functor MapLList(A : MkMap) : Map = MkMap(struct
          | None => Some(adj(emp, xs, f))))
 end)
 
-(* Map for fixpoints *)
+(* Map for tree-like data *)
 functor MapTree(
   structure T : Tree
   (* A map for one "layer" of the tree-like structure *)
@@ -741,6 +726,17 @@ functor MapTree(
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
 end)
 
+(* Map for list *)
+functor MapList(A : MkMap) : Map = MapTree(struct
+  structure T = struct
+    type ('x, 'y, 'z) t = ('x, 'y, 'z) A.k list
+    type ('x, 'y, 'z) rep = ('x, 'y, 'z) A.k opt
+    val subs = TreeList.subs
+    val rep = TreeList.rep
+  end
+  structure M = MapOpt(A)
+end)
+
 (* -------------------- Tests -------------------- *)
 
 structure Tests = struct
@@ -773,16 +769,7 @@ structure Tests = struct
        | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
   end *)
   structure ListTrieTests = struct
-    structure MapUnitListF : Map = MapRep(struct
-      structure A = struct
-        type ('x, 'y, 'z) t = unit list
-        type ('x, 'y, 'z) rep = unit opt
-        val subs = TreeList.subs
-        val rep = TreeList.rep
-      end
-      structure M = MapOpt(MapUnit)
-    end)
-    structure M = MapUnitListF
+    structure M = MapList(MapUnit)
     val _ = chk(None, M.get(M.emp, []))
     val _ = chk(Some 3, M.get(M.set(M.emp, [], 3), []))
     val _ =

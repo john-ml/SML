@@ -722,6 +722,15 @@ functor MapTree(
 
 (* ---------- Map instances ---------- *)
 
+structure MapBool : Map = MapRep(
+  structure A = struct
+    type ('x, 'y, 'z) t = bool
+    type ('x, 'y, 'z) rep = (unit, unit) sum
+    fun rep p = if p then Inl() else Inr()
+  end
+  structure M = MapSum(structure A = MapUnit; structure B = MapUnit)
+)
+
 functor MapList(A : MkMap) : Map = MapTree(
   structure T = struct
     type ('x, 'y, 'z) t = ('x, 'y, 'z) A.k list

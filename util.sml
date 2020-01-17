@@ -597,6 +597,23 @@ functor MkMap(M : MkMap) : Map = struct
   fun upd(m, x, f) = adj(m, x, fn mv => MonOpt.map(f, mv))
 end
 
+(* Map for keys k representable as repr *)
+functor MapRepr(
+  structure A : sig
+    type ('x, 'y, 'z) k
+    type ('x, 'y, 'z) repr
+    val repr : ('x, 'y, 'z) k -> ('x, 'y, 'z) repr
+  end
+  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.repr
+) : Map = MkMap(struct
+  open A
+  exception NotFound
+  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) M.t
+  val emp = M.emp
+  fun get_(m, x) = M.get_(m, repr x)
+  fun adj(m, x, f) = M.adj(m, repr x, f)
+end)
+
 (* Map for unit *)
 structure MapUnit : Map = MkMap(struct
   exception NotFound
@@ -634,16 +651,14 @@ functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
 end)
 
 (* Map for opt *)
-functor MapOpt(A : MkMap) : Map = MkMap(struct
-  exception NotFound
-  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k opt
-  type ('x, 'y, 'z, 'a) t = 'a opt * ('x, 'y, 'z, 'a) A.t
-  val emp = (None, A.emp)
-  fun get_((Some v, _), None) = v
-    | get_((None, _), None) = raise NotFound
-    | get_((_, m), Some x) = A.get_(m, x)
-  fun adj((v, m), None, f) = (f v, m)
-    | adj((v, m), Some x, f) = (v, A.adj(m, x, f))
+functor MapOpt(A' : MkMap) : Map = MapRepr(struct
+  structure A = struct
+    type ('x, 'y, 'z) k = ('x, 'y, 'z) A'.k opt
+    type ('x, 'y, 'z) repr = (unit, ('x, 'y, 'z) A'.k) sum
+    fun repr None = Inl()
+      | repr(Some v) = Inr v
+  end
+  structure M = MapSum(structure A = MapUnit; structure B = A')
 end)
 
 (* Map for list *)
@@ -717,25 +732,6 @@ functor MapFix(
        | None & None => Some(f None, M L.emp)
        | None & Some(x, xs) => Some(None, adj_l(emp, LL.cons(x, xs), f))))
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
-end)
-
-signature ArgsMapRepr = sig
-  structure A : sig
-    type ('x, 'y, 'z) k
-    type ('x, 'y, 'z) repr
-    val repr : ('x, 'y, 'z) k -> ('x, 'y, 'z) repr
-  end
-  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.repr
-end
-
-functor MapRepr(X : ArgsMapRepr) : Map = MkMap(struct
-  open X
-  open A
-  exception NotFound
-  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) M.t
-  val emp = M.emp
-  fun get_(m, x) = M.get_(m, repr x)
-  fun adj(m, x, f) = M.adj(m, repr x, f)
 end)
 
 (* -------------------- Tests -------------------- *)

@@ -16,6 +16,8 @@ datatype ('a, 'b) prod = & of 'a * 'b
 
 fun (f o g) x = f (g x)
 
+fun opt susp = Some(susp()) handle _ => None
+
 (*
 Naming scheme: for some signature M,
   signature MkM = minimal definitions needed to make an M
@@ -446,31 +448,90 @@ structure RList :> RList = struct
   fun set xsiy = Some(set_ xsiy) handle Index => None
 end
 
-(* -------------------- Maps -------------------- *)
+(* -------------------- Lazy lists -------------------- *)
 
-(* The general signature of maps *)
-signature Map = sig
-  exception NotFound
-  type k (* The type of keys *)
-  type 'a t
-  val emp : 'a t
-  val get : 'a t * k -> 'a opt
-  val get_ : 'a t * k -> 'a
-  val set : 'a t * k * 'a -> 'a t
-  val upd : 'a t * k * ('a -> 'a) -> 'a t
-  val del : 'a t * k -> 'a t
-  val adj : 'a t * k * ('a opt -> 'a opt) -> 'a t
-  val union : 'a t * 'a t -> 'a t
-  val inter : 'a t * 'a t -> 'a t
-  val diff : 'a t * 'a t -> 'a t
-  val map : ('a -> 'b) * 'a t -> 'b t
+(* Use linearly! Does not memoize! *)
+structure LList = struct
+  datatype 'a t = LList of unit -> ('a * 'a t) opt | App of 'a t * 'a t
+  val emp = LList(fn _ => None)
+  fun cons xxs = LList(fn _ => Some xxs)
+  fun go(LList xs) = xs()
+    | go(App(xs, ys)) = case go xs of None => go ys | r => r
+  val app = App
+  fun map(f : 'a -> 'b, xs as LList _) =
+      LList (fn _ =>
+        case go xs
+        of Some(x, xs) => Some(f x, map(f, xs))
+         | None => None)
+    | map(f, App(xs, ys)) = App(map(f, xs), map(f, ys))
+  fun foldr(xs, e, f) =
+    case go xs
+    of None => e
+     | Some(x, xs) => f(x, foldr(xs, e, f))
+  fun foldl(xs, e, f) =
+    case go xs
+    of None => e
+     | Some(x, xs) => foldl(xs, f(e, x), f)
 end
 
-(* Functional maps *)
-functor MapFun(type k; val eq : k -> k -> bool) : Map = struct
+(* Use linearly! Does not memoize! *)
+structure MonLList : Mon = MkMon(struct
+  open LList
+  type ('e, 'a) f = 'a t
+  fun ret x = cons(x, emp)
+  fun bind(xs, f) = foldl(map(f, xs), emp, app)
+end)
+
+(* -------------------- Functor fixpoints -------------------- *)
+
+signature Fix = sig
+  include Fun
+  datatype 'e t = Fix of ('e, 'e t) f
+  val fold : 'e t * (('e, 'a) f -> 'a) -> 'a
+end
+
+signature FixExt = sig
+  include Fix
+  val subs : 'e t -> 'e t LList.t
+end
+
+(* -------------------- Map sigs -------------------- *)
+
+(* A minimal signature for maps *)
+signature Map = sig
   exception NotFound
-  type k = k
-  type 'a t = k -> 'a
+  type 'e k (* The type of keys *)
+  type ('e, 'a) t
+  val emp : ('e, 'a) t
+  val get_ : ('e, 'a) t * 'e k -> 'a
+  val adj : ('e, 'a) t * 'e k * ('a opt -> 'a opt) -> ('e, 'a) t
+end
+
+(* An extended signature for maps *)
+signature ExtMap = sig
+  exception NotFound
+  type 'e k (* The type of keys *)
+  type ('e, 'a) t
+  val emp : ('e, 'a) t
+  val get : ('e, 'a) t * 'e k -> 'a opt
+  val get_ : ('e, 'a) t * 'e k -> 'a
+  val set : ('e, 'a) t * 'e k * 'a -> ('e, 'a) t
+  val upd : ('e, 'a) t * 'e k * ('a -> 'a) -> ('e, 'a) t
+  val del : ('e, 'a) t * 'e k -> ('e, 'a) t
+  val adj : ('e, 'a) t * 'e k * ('a opt -> 'a opt) -> ('e, 'a) t
+  val union : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
+  val inter : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
+  val diff : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
+  val map : ('a -> 'b) * ('e, 'a) t -> ('e, 'b) t
+end
+
+(* -------------------- Map structs -------------------- *)
+
+(* Functional maps *)
+functor ExtMapFun(type 'e k; val eq : 'e k -> 'e k -> bool) : ExtMap = struct
+  exception NotFound
+  type 'e k = 'e k
+  type ('e, 'a) t = 'e k -> 'a
   fun emp _ = raise NotFound
   fun get_(m, k) = m k
   fun get(m, k) = Some(get_(m, k)) handle NotFound => None
@@ -484,10 +545,122 @@ functor MapFun(type k; val eq : k -> k -> bool) : Map = struct
   fun union(m, n) k = m k handle NotFound => n k
   fun inter(m, n) k = let val r = m k val _ = n k in r end
   fun diff(m, n) k =
-    case get(m, k) & get(n, k)
-    of Some v & None => v
+    case m k & get(n, k)
+    of v & None => v
      | _ => raise NotFound
   fun map(f, m) k = f(m k)
+end
+
+(* Tries for products *)
+functor MapProd(structure A : Map; structure B : Map) : Map = struct
+  exception NotFound
+  type 'e k = 'e A.k * 'e B.k
+  type ('e, 'a) t = ('e, ('e, 'a) B.t) A.t
+  val emp = A.emp
+  fun get_(m, (x, y)) = B.get_(A.get_(m, x), y)
+  fun adj(m, (x, y), f) =
+    A.adj(m, x,
+     fn None => Some(B.adj(B.emp, y, f))
+      | Some m => Some(B.adj(m, y, f)))
+end
+
+(* Tries for sums *)
+functor MapSum(structure A : Map; structure B : Map) : Map = struct
+  exception NotFound
+  type 'e k = ('e A.k, 'e B.k) sum
+  type ('e, 'a) t = ('e, 'a) A.t * ('e, 'a) B.t
+  val emp = (A.emp, B.emp)
+  fun get_((m, _), Inl x) = A.get_(m, x)
+    | get_((_, m), Inr x) = B.get_(m, x)
+  fun adj((ma, mb), Inl x, f) = (A.adj(ma, x, f), mb)
+    | adj((ma, mb), Inr x, f) = (ma, B.adj(mb, x, f))
+end
+
+(* Tries for opt *)
+functor MapOpt(A : Map) : Map = struct
+  exception NotFound
+  type 'e k = 'e A.k opt
+  type ('e, 'a) t = 'a opt * ('e, 'a) A.t
+  val emp = (None, A.emp)
+  fun get_((Some v, _), None) = v
+    | get_((None, _), None) = raise NotFound
+    | get_((_, m), Some x) = A.get_(m, x)
+  fun adj((v, m), None, f) = (f v, m)
+    | adj((v, m), Some x, f) = (v, A.adj(m, x, f))
+end
+
+(* Tries for lists *)
+functor MapList(A : Map) : Map = struct
+  exception NotFound
+  type 'e k = 'e A.k list
+  datatype ('e, 'a) t = M of 'a opt * ('e, ('e, 'a) t) A.t
+  val emp = M(None, A.emp)
+  fun get_(M(Some v, _), []) = v
+    | get_(M(_, m), x::xs) = get_(A.get_(m, x), xs)
+    | get_ _ = raise NotFound
+  fun adj(M(v, m), [], f) = M(f v, m)
+    | adj(M(v, m), x::xs, f) =
+      M(v, A.adj(m, x,
+       fn Some m => Some(adj(m, xs, f))
+        | None => Some(adj(emp, xs, f))))
+end
+
+(* Tries for lazy lists *)
+functor MapLList(A : Map) : Map = struct
+  exception NotFound
+  type 'e k = 'e A.k LList.t
+  datatype ('e, 'a) t = M of 'a opt * ('e, ('e, 'a) t) A.t
+  val emp = M(None, A.emp)
+  fun get_(m, xs) =
+    case m & LList.go xs
+    of M(Some v, _) & None => v
+     | M(_, m) & Some(x, xs) => get_(A.get_(m, x), xs)
+     | _ => raise NotFound
+  fun adj(m, xs, f) =
+    case m & LList.go xs
+    of M(v, m) & None => M(f v, m)
+     | M(v, m) & Some(x, xs) =>
+       M(v, A.adj(m, x,
+        fn Some m => Some(adj(m, xs, f))
+         | None => Some(adj(emp, xs, f))))
+end
+
+(* Tries for fixpoints *)
+signature MapFixExtArg = sig
+  structure F : FixExt
+  (* A map for one "layer" of F.f *)
+  structure M : Map where type 'e k = 'e F.t
+end
+functor MapFixExt(M : MapFixExtArg) : Map = struct
+  exception NotFound
+  structure L = MapLList(MapOpt(M.M))
+  structure LL = LList
+
+  type 'e k = 'e M.F.t
+  datatype ('e, 'a) t = M of ('e, 'a opt * ('e, 'a) t) L.t
+
+  fun smush xs =
+    let open MonLList in
+      bind(xs, fn Some x => LL.cons(None, map(Some, M.F.subs x)) | None => LL.emp)
+    end
+
+  val emp = M L.emp
+
+  fun get_l_(M m, xs) =
+    case L.get_(m, xs) & LL.go(smush xs)
+    of (Some v, _) & None => v
+     | (None, _) & None => raise NotFound
+     | (_, m) & Some(x, xs) => get_l_(m, LL.cons(x, xs))
+  fun get_(m, x) = get_l_(m, LL.cons(Some x, LL.emp))
+
+  fun adj_l(M m, xs, f) =
+    M(L.adj(m, xs, fn r =>
+      case r & LL.go(smush xs)
+      of Some(v, m) & None => Some(f v, m)
+       | Some(v, m) & Some(x, xs) => Some(v, adj_l(m, LL.cons(x, xs), f))
+       | None & None => Some(f None, M L.emp)
+       | None & Some(x, xs) => Some(None, adj_l(emp, LL.cons(x, xs), f))))
+  fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
 end
 
 (* -------------------- Tests -------------------- *)
@@ -512,3 +685,12 @@ structure Tests = struct
   structure L = RList
   val xs = L.cons(1, L.cons(2, L.cons(3, L.emp)))
 end
+
+(*
+structure PolyRecTests = struct
+  datatype 'a tup = End | Tup of 'a * ('a * 'a) tup
+  fun ('a, 'b) map(f : 'a -> 'b, xs : 'a tup) : 'b tup =
+    case xs
+    of End => End
+     | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
+end *)

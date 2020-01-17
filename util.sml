@@ -784,7 +784,7 @@ structure Tests = struct
       of End => End
        | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
   end *)
-  structure ListTrieTests = struct
+  structure ListTrie = struct
     structure M = MapList(MapUnit)
     val _ = chk(None, M.get(M.emp, []))
     val _ = chk(Some 3, M.get(M.set(M.emp, [], 3), []))
@@ -805,6 +805,37 @@ structure Tests = struct
         chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), xs));
         chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), ys, 3), ys));
         chk(None, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), ys))
+      end
+  end
+  structure LCTrie = struct
+    structure LC = struct
+      datatype term = Var of int | Lam of term | App of term * term
+    end
+    structure M = MapTree(
+      structure T = struct
+        open LC
+        type ('x, 'y, 'z) t = term
+        type ('x, 'y, 'z) rep = (int, bool) sum
+        fun subs(Var _) = LList.emp
+          | subs(Lam e) = LList.cons(e, LList.emp)
+          | subs(App(e1, e2)) = LList.cons(e1, LList.cons(e2, LList.emp))
+        fun rep(Var i) = Inl i
+          | rep(Lam _) = Inr true
+          | rep(App _) = Inr false
+      end
+      structure M = MapSum(structure A = MapInt; structure B = MapBool)
+    )
+    val _ =
+      let
+        open LC
+        val i = Lam(Var 0)
+        val k = Lam(Lam(Var 1))
+        val s = Lam(Lam(Lam(App(App(Var 2, Var 0), App(Var 1, Var 0)))))
+        val b = Lam(Lam(Lam(App(Var 2, App(Var 1, Var 0)))))
+      in
+        chk(Some 3, M.get(M.set(M.emp, b, 3), b));
+        chk(Some 2, M.get(M.set(M.set(M.set(M.emp, k, 2), i, 0), b, 3), k));
+        chk(None, M.get(M.set(M.set(M.set(M.emp, k, 2), i, 0), b, 3), s))
       end
   end
 end

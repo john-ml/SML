@@ -349,9 +349,9 @@ end)
 functor TOrdList(A : TOrd) : TOrd = MkTOrd(struct
   type ('x, 'y, 'a) t = ('x, 'y, 'a) A.t list
   fun cmp([], []) = Eq
-    | cmp([], _ :: _) = Lt
-    | cmp(_ :: _, []) = Gt
-    | cmp(x :: xs, y :: ys) = case A.cmp(x, y) of Eq => cmp(xs, ys) | c => c
+    | cmp([], _::_) = Lt
+    | cmp(_::_, []) = Gt
+    | cmp(x::xs, y::ys) = case A.cmp(x, y) of Eq => cmp(xs, ys) | c => c
 end)
 
 (* -------------------- Lattices -------------------- *)
@@ -411,17 +411,17 @@ structure RList :> RList = struct
   val emp = []
 
   (* O(1) *)
-  fun cons(x, ts as (v, l) :: (w, r) :: ts') =
+  fun cons(x, ts as (v, l)::(w, r)::ts') =
       if v = w
-      then ((1 + v + w, Node(l, x, r)) :: ts')
-      else (1, Leaf x) :: ts
-    | cons(x, ts) = (1, Leaf x) :: ts
+      then ((1 + v + w, Node(l, x, r))::ts')
+      else (1, Leaf x)::ts
+    | cons(x, ts) = (1, Leaf x)::ts
 
   (* O(1) *)
   fun ucons_[] = raise Empty
-    | ucons_((1, Leaf x) :: ts) = (x, ts)
-    | ucons_((w, Node(l, x, r)) :: ts) = (x, (w div 2, l) :: (w div 2, r) :: ts)
-    | ucons_((_, _) :: _) = raise RListInternal
+    | ucons_((1, Leaf x)::ts) = (x, ts)
+    | ucons_((w, Node(l, x, r))::ts) = (x, (w div 2, l)::(w div 2, r)::ts)
+    | ucons_((_, _)::_) = raise RListInternal
 
   fun hd_ xs = let val (x, _) = ucons_ xs in x end
   fun tl_ xs = let val (_, xs) = ucons_ xs in xs end
@@ -443,7 +443,7 @@ structure RList :> RList = struct
 
   (* O(min(i, log(n))) *)
   fun get_([], _) = raise Index
-    | get_((w, t) :: ts, i) = if i < w then get_tree_(w, t, i) else get_(ts, i - w)
+    | get_((w, t)::ts, i) = if i < w then get_tree_(w, t, i) else get_(ts, i - w)
 
   fun upd_tree_(1, Leaf x, 0, f) = Leaf(f x)
     | upd_tree_(1, Leaf _, _, _) = raise Index
@@ -458,10 +458,10 @@ structure RList :> RList = struct
 
   (* O(min(i, log(n))) *)
   fun upd_([], _, _) = raise Index
-    | upd_((w, t) :: ts, i, f) =
+    | upd_((w, t)::ts, i, f) =
       if i < w
-      then (w, upd_tree_(w, t, i, f)) :: ts
-      else (w, t) :: upd_(ts, i - w, f)
+      then (w, upd_tree_(w, t, i, f))::ts
+      else (w, t)::upd_(ts, i - w, f)
 
   fun set_(xs, i, y) = upd_(xs, i, fn _ => y)
 
@@ -745,15 +745,15 @@ structure Tests = struct
   structure CPSTests = struct
     structure C = MonCPS
     fun product[] = C.ret 1
-      | product(0 :: xs) = C.shift(fn _ => 0)
-      | product(x :: xs) = C.map(fn y => x*y, product xs)
+      | product(0::xs) = C.shift(fn _ => 0)
+      | product(x::xs) = C.map(fn y => x*y, product xs)
     val _ = chk(12, C.run(product[2, 2, 3]))
     val _ = chk(0, C.run(product[1, 2, 0, 3]))
     val _ = chk(0, C.run(C.map(fn x => x + 3, product[1, 2, 0, 3])))
     val _ = chk(3, C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3]))))
     fun find_zero[] = C.ret false
-      | find_zero(0 :: _) = C.shift(fn _ => true)
-      | find_zero(_ :: xs) = find_zero xs
+      | find_zero(0::_) = C.shift(fn _ => true)
+      | find_zero(_::xs) = find_zero xs
     val _ = chk(false, C.run(find_zero[2, 2, 3]))
     val _ = chk(true, C.run(find_zero[1, 2, 0, 3]))
     val _ = chk(1, C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero[1, 2, 0, 3]))))

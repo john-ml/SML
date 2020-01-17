@@ -6,6 +6,8 @@ infixr 5 ++
 
 (* -------------------- Basics -------------------- *)
 
+exception NotFound
+
 datatype cmp = Lt | Eq | Gt
 
 datatype 'a opt = None | Some of 'a
@@ -514,13 +516,30 @@ structure MonLList : Mon = MkMon(struct
   fun bind(xs, f) = foldr(map(f, xs), emp, app)
 end)
 
-(* -------------------- Functor fixpoints -------------------- *)
 
-signature Fix = sig
-  include Fun
-  type ('x, 'y, 'z) t (* The least fixpoint of f *)
-  val fold : ('x, 'y, 'z) t * (('x, 'y, 'z, 'a) f -> 'a) -> 'a
+(* -------------------- Representing one type as another -------------------- *)
+
+signature Rep = sig
+  type ('x, 'y, 'z) t
+  type ('x, 'y, 'z) rep
+  val rep : ('x, 'y, 'z) t -> ('x, 'y, 'z) rep
+end
+
+(* -------------------- Tree-like data -------------------- *)
+
+signature Tree = sig
+  include Rep (* Representation of one recursive 'layer' *)
+  (* A lazy list of children *)
   val subs : ('x, 'y, 'z) t -> ('x, 'y, 'z) t LList.t
+end
+
+structure TreeList = struct
+  type ('x, 'y, 'a) t = 'a list
+  type ('x, 'y, 'a) rep = 'a opt
+  fun subs[] = LList.emp
+    | subs(_::xs) = LList.cons(xs, LList.emp)
+  fun rep[] = None
+    | rep(x::_) = Some x
 end
 
 (* -------------------- Functional maps -------------------- *)
@@ -529,7 +548,6 @@ functor MapFn(
   type ('x, 'y, 'z) k
   val eq : ('x, 'y, 'z) k -> ('x, 'y, 'z) k -> bool
 ) : sig
-  exception NotFound
   type ('x, 'y, 'z) k (* The type of keys *)
   type ('x, 'y, 'z, 'a) t
   val emp : ('x, 'y, 'z, 'a) t
@@ -544,7 +562,6 @@ functor MapFn(
   val diff : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'a) t
   val map : ('a -> 'b) * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'b) t
 end = struct
-  exception NotFound
   type ('x, 'y, 'z) k = ('x, 'y, 'z) k
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z) k -> 'a
   fun emp _ = raise NotFound
@@ -570,7 +587,6 @@ end
 
 (* A minimal signature for trie-based maps *)
 signature MkMap = sig
-  exception NotFound
   type ('x, 'y, 'z) k (* The type of keys *)
   type ('x, 'y, 'z, 'a) t
   val emp : ('x, 'y, 'z, 'a) t
@@ -597,26 +613,20 @@ functor MkMap(M : MkMap) : Map = struct
   fun upd(m, x, f) = adj(m, x, fn mv => MonOpt.map(f, mv))
 end
 
-(* Map for keys k representable as repr *)
-functor MapRepr(
-  structure A : sig
-    type ('x, 'y, 'z) k
-    type ('x, 'y, 'z) repr
-    val repr : ('x, 'y, 'z) k -> ('x, 'y, 'z) repr
-  end
-  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.repr
+(* Map for keys k representable as A.rep *)
+functor MapRep(
+  structure A : Rep
+  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.rep
 ) : Map = MkMap(struct
-  open A
-  exception NotFound
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.t
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) M.t
   val emp = M.emp
-  fun get_(m, x) = M.get_(m, repr x)
-  fun adj(m, x, f) = M.adj(m, repr x, f)
+  fun get_(m, x) = M.get_(m, A.rep x)
+  fun adj(m, x, f) = M.adj(m, A.rep x, f)
 end)
 
 (* Map for unit *)
 structure MapUnit : Map = MkMap(struct
-  exception NotFound
   type ('x, 'y, 'z) k = unit
   type ('x, 'y, 'z, 'a) t = 'a opt
   val emp = None
@@ -627,7 +637,6 @@ end)
 
 (* Map for product *)
 functor MapProd(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
-  exception NotFound
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k * ('x, 'y, 'z) B.k
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, ('x, 'y, 'z, 'a) B.t) A.t
   val emp = A.emp
@@ -640,7 +649,6 @@ end)
 
 (* Map for sum *)
 functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
-  exception NotFound
   type ('x, 'y, 'z) k = (('x, 'y, 'z) A.k, ('x, 'y, 'z) B.k) sum
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) A.t * ('x, 'y, 'z, 'a) B.t
   val emp = (A.emp, B.emp)
@@ -651,19 +659,18 @@ functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
 end)
 
 (* Map for opt *)
-functor MapOpt(A' : MkMap) : Map = MapRepr(struct
+functor MapOpt(A' : MkMap) : Map = MapRep(struct
   structure A = struct
-    type ('x, 'y, 'z) k = ('x, 'y, 'z) A'.k opt
-    type ('x, 'y, 'z) repr = (unit, ('x, 'y, 'z) A'.k) sum
-    fun repr None = Inl()
-      | repr(Some v) = Inr v
+    type ('x, 'y, 'z) t = ('x, 'y, 'z) A'.k opt
+    type ('x, 'y, 'z) rep = (unit, ('x, 'y, 'z) A'.k) sum
+    fun rep None = Inl()
+      | rep(Some v) = Inr v
   end
   structure M = MapSum(structure A = MapUnit; structure B = A')
 end)
 
 (* Map for list *)
 functor MapList(A : MkMap) : Map = MkMap(struct
-  exception NotFound
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k list
   datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
   val emp = M(None, A.emp)
@@ -679,7 +686,6 @@ end)
 
 (* Map for lazy list *)
 functor MapLList(A : MkMap) : Map = MkMap(struct
-  exception NotFound
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k LList.t
   datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
   val emp = M(None, A.emp)
@@ -698,21 +704,22 @@ functor MapLList(A : MkMap) : Map = MkMap(struct
 end)
 
 (* Map for fixpoints *)
-functor MapFix(
-  structure F : Fix
-  (* A map for one "layer" of F.f *)
-  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) F.t
+functor MapTree(
+  structure T : Tree
+  (* A map for one "layer" of the tree-like structure *)
+  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) T.rep
 ) : Map = MkMap(struct
-  exception NotFound
-  structure L = MapLList(MapOpt(M))
+  structure L = MapLList(MapOpt(MapRep(structure A = T; structure M = M)))
   structure LL = LList
 
-  type ('x, 'y, 'z) k = ('x, 'y, 'z) F.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) T.t
   datatype ('x, 'y, 'z, 'a) t = M of ('x, 'y, 'z, 'a opt * ('x, 'y, 'z, 'a) t) L.t
 
   fun smush xs =
     let open MonLList in
-      bind(xs, fn Some x => LL.cons(None, map(Some, F.subs x)) | None => LL.emp)
+      bind(xs,
+       fn Some x => LL.cons(None, map(Some, T.subs x))
+        | None => LL.emp)
     end
 
   val emp = M L.emp
@@ -726,11 +733,11 @@ functor MapFix(
 
   fun adj_l(M m, xs, f) =
     M(L.adj(m, xs, fn r =>
-      case r & LL.go(smush xs)
-      of Some(v, m) & None => Some(f v, m)
-       | Some(v, m) & Some(x, xs) => Some(v, adj_l(m, LL.cons(x, xs), f))
+      case LL.go(smush xs) & r
+      of None & Some(v, m) => Some(f v, m)
        | None & None => Some(f None, M L.emp)
-       | None & Some(x, xs) => Some(None, adj_l(emp, LL.cons(x, xs), f))))
+       | Some(x, xs) & Some(v, m) => Some(v, adj_l(m, LL.cons(x, xs), f))
+       | Some(x, xs) & None => Some(None, adj_l(emp, LL.cons(x, xs), f))))
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
 end)
 
@@ -738,7 +745,7 @@ end)
 
 structure Tests = struct
   exception Chk
-  fun chk(x, y) = if x = y then () else raise Chk
+  fun chk(x, y) : unit = if x = y then () else raise Chk
   structure CPSTests = struct
     structure C = MonCPS
     fun product[] = C.ret 1
@@ -766,36 +773,22 @@ structure Tests = struct
        | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
   end *)
   structure ListTrieTests = struct
-    structure ListF = struct
-      datatype ('x, 'y, 'a, 'r) f = NilF | ConsF of 'a * 'r
-      type ('x, 'y, 'a) t = 'a list
-      fun map(_, NilF) = NilF
-        | map(f, ConsF(x, xs)) = ConsF(x, f xs)
-      val emp = []
-      val cons = (op ::)
-      fun fold([], g) = g[]
-        | fold(x::xs, g) = g(fold(xs, g))
-      fun subs[] = LList.emp
-        | subs(_::xs) = LList.cons(xs, LList.emp)
-    end
-    structure MapUnitListF : Map = MapRepr(struct
+    structure MapUnitListF : Map = MapRep(struct
       structure A = struct
-        open ListF
-        type ('x, 'y, 'z) k = ('x, 'y, unit) t
-        type ('x, 'y, 'z) repr = unit opt
-        fun repr[] = None
-          | repr(x::_) = Some x
+        type ('x, 'y, 'z) t = unit list
+        type ('x, 'y, 'z) rep = unit opt
+        val subs = TreeList.subs
+        val rep = TreeList.rep
       end
       structure M = MapOpt(MapUnit)
     end)
     structure M = MapUnitListF
-    structure L = ListF
-    val _ = chk(0, M.get_(M.emp, L.emp) handle NotFound => 0)
-    val _ = chk(3, M.get_(M.adj(M.emp, L.emp, fn _ => Some 3), L.emp) handle NotFound => 0)
+    val _ = chk(None, M.get(M.emp, []))
+    val _ = chk(Some 3, M.get(M.set(M.emp, [], 3), []))
     val _ =
       let val xs = [(), (), ()] in
-        chk(4, M.get_(M.set(M.set(M.emp, xs, 4), [], 3), xs) handle NotFound => 0);
-        chk(3, M.get_(M.set(M.set(M.emp, xs, 4), xs, 3), xs) handle NotFound => 0)
+        chk(Some 4, M.get(M.set(M.set(M.emp, xs, 4), [], 3), xs));
+        chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), xs))
       end
   end
 end

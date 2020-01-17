@@ -551,6 +551,17 @@ functor ExtMapFun(type 'e k; val eq : 'e k -> 'e k -> bool) : ExtMap = struct
   fun map(f, m) k = f(m k)
 end
 
+(* Map for unit *)
+structure MapUnit : Map = struct
+  exception NotFound
+  type 'e k = unit
+  type ('e, 'a) t = 'a opt
+  val emp = None
+  fun get_(Some v, _) = v
+    | get_(None, _) = raise NotFound
+  fun adj(v, _, f) = f v
+end
+
 (* Map for product *)
 functor MapProd(structure A : Map; structure B : Map) : Map = struct
   exception NotFound
@@ -668,43 +679,63 @@ end
 structure Tests = struct
   exception Chk
   fun chk(x, y) = if x = y then () else raise Chk
-  structure C = MonCPS
-  fun product[] = C.ret 1
-    | product(0 :: xs) = C.shift(fn _ => 0)
-    | product(x :: xs) = C.map(fn y => x*y, product xs)
-  val _ = chk(12, C.run(product[2, 2, 3]))
-  val _ = chk(0, C.run(product[1, 2, 0, 3]))
-  val _ = chk(0, C.run(C.map(fn x => x + 3, product[1, 2, 0, 3])))
-  val _ = chk(3, C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3]))))
-  fun find_zero[] = C.ret false
-    | find_zero(0 :: _) = C.shift(fn _ => true)
-    | find_zero(_ :: xs) = find_zero xs
-  val _ = chk(false, C.run(find_zero[2, 2, 3]))
-  val _ = chk(true, C.run(find_zero[1, 2, 0, 3]))
-  val _ = chk(1, C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero[1, 2, 0, 3]))))
-  structure L = RList
-  val xs = L.cons(1, L.cons(2, L.cons(3, L.emp)))
-end
-
-(*
-structure PolyRecTests = struct
-  datatype 'a tup = End | Tup of 'a * ('a * 'a) tup
-  fun ('a, 'b) map(f : 'a -> 'b, xs : 'a tup) : 'b tup =
-    case xs
-    of End => End
-     | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
-end *)
-
-structure ListTrieTests = struct
-  structure ListF = struct
-    datatype ('e, 'a) f = NilF | ConsF of 'e * 'a
-    fun map(_, NilF) = NilF
-      | map(f, ConsF(x, xs)) = ConsF(x, f xs)
+  structure CPSTests = struct
+    structure C = MonCPS
+    fun product[] = C.ret 1
+      | product(0 :: xs) = C.shift(fn _ => 0)
+      | product(x :: xs) = C.map(fn y => x*y, product xs)
+    val _ = chk(12, C.run(product[2, 2, 3]))
+    val _ = chk(0, C.run(product[1, 2, 0, 3]))
+    val _ = chk(0, C.run(C.map(fn x => x + 3, product[1, 2, 0, 3])))
+    val _ = chk(3, C.run(C.map(fn x => x + 3, C.reset(product [1, 2, 0, 3]))))
+    fun find_zero[] = C.ret false
+      | find_zero(0 :: _) = C.shift(fn _ => true)
+      | find_zero(_ :: xs) = find_zero xs
+    val _ = chk(false, C.run(find_zero[2, 2, 3]))
+    val _ = chk(true, C.run(find_zero[1, 2, 0, 3]))
+    val _ = chk(1, C.run(C.map(fn true => 1 | _ => 0, C.reset(find_zero[1, 2, 0, 3]))))
+    structure L = RList
+    val xs = L.cons(1, L.cons(2, L.cons(3, L.emp)))
   end
-  structure FixExtListF : FixExt = struct
-    open ListF
-    datatype 'e t = Fix of ('e, 'e t) f
-    fun fold(Fix xs, g) = g(map(fn x => fold(x, g), xs))
-    (* val subs : 'e t -> 'e t LList.t *)
+  (*
+  structure PolyRecTests = struct
+    datatype 'a tup = End | Tup of 'a * ('a * 'a) tup
+    fun ('a, 'b) map(f : 'a -> 'b, xs : 'a tup) : 'b tup =
+      case xs
+      of End => End
+       | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
+  end *)
+  structure ListTrieTests = struct
+    structure ListF = struct
+      datatype ('e, 'a) f = NilF | ConsF of 'e * 'a
+      fun map(_, NilF) = NilF
+        | map(f, ConsF(x, xs)) = ConsF(x, f xs)
+    end
+    structure FixExtListF = struct
+      open ListF
+      datatype 'e t = Fix of ('e, 'e t) f
+      val emp = Fix NilF
+      fun cons(x, xs) = Fix(ConsF(x, xs))
+      fun fold(Fix xs, g) = g(map(fn x => fold(x, g), xs))
+      fun subs(Fix NilF) = LList.emp
+        | subs(Fix(ConsF(_, xs))) = LList.cons(xs, LList.emp)
+    end
+    structure MapUnitListF : Map = struct
+      open ListF
+      open FixExtListF
+      type 'e k = unit t
+      fun there(Fix NilF) = None
+        | there(Fix(ConsF(x, xs))) = Some x
+      structure M : Map = MapOpt(MapUnit)
+      exception NotFound
+      type ('e, 'a) t = ('e, 'a) M.t
+      val emp = M.emp
+      fun get_(m, x) = M.get_(m, there x)
+      fun adj(m, x, f) = M.adj(m, there x, f)
+    end
+    structure M = MapUnitListF
+    structure L = FixExtListF
+    val _ = chk(0, M.get_(M.emp, L.emp) handle NotFound => 0)
+    val _ = chk(3, M.get_(M.adj(M.emp, L.emp, fn _ => Some 3), L.emp) handle NotFound => 0)
   end
 end

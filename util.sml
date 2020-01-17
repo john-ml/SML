@@ -623,7 +623,7 @@ functor MapRep(
   fun adj(m, x, f) = M.adj(m, A.rep x, f)
 )
 
-(* -------------------- 'Data-structural boot-strapping' -------------------- *)
+(* ---------- 'Data-structural boot-strapping' for tries ---------- *)
 
 structure MapUnit : Map = MkMap(
   type ('x, 'y, 'z) k = unit
@@ -720,7 +720,7 @@ functor MapTree(
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
 )
 
-(* ---------- Map instances ---------- *)
+(* ---------- Maps for common types ---------- *)
 
 structure MapBool : Map = MapRep(
   structure A = struct
@@ -739,6 +739,18 @@ functor MapList(A : MkMap) : Map = MapTree(
     val rep = TreeList.rep
   end
   structure M = MapOpt(A)
+)
+
+(* Slow int map for now *)
+structure MapInt : Map = MapTree(
+  structure T = struct
+    type ('x, 'y, 'z) t = int
+    type ('x, 'y, 'z) rep = bool
+    fun subs 0 = LList.emp
+      | subs n = LList.cons(n div 2, LList.emp)
+    fun rep n = case n mod 2 of 1 => true | _ => false
+  end
+  structure M = MapBool
 )
 
 (* -------------------- Tests -------------------- *)
@@ -780,6 +792,19 @@ structure Tests = struct
       let val xs = [(), (), ()] in
         chk(Some 4, M.get(M.set(M.set(M.emp, xs, 4), [], 3), xs));
         chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), xs))
+      end
+    structure M = MapList(MapProd(structure A = MapInt; structure B = MapBool))
+    val _ = chk(None, M.get(M.emp, []))
+    val _ = chk(Some 3, M.get(M.set(M.emp, [], 3), []))
+    val _ =
+      let
+        val xs = [(1, true), (2, false), (3, false)]
+        val ys = [(1, true), (2, false), (4, false)]
+      in
+        chk(Some 4, M.get(M.set(M.set(M.emp, xs, 4), [], 3), xs));
+        chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), xs));
+        chk(Some 3, M.get(M.set(M.set(M.emp, xs, 4), ys, 3), ys));
+        chk(None, M.get(M.set(M.set(M.emp, xs, 4), xs, 3), ys))
       end
   end
 end

@@ -189,25 +189,25 @@ end
 
 (* -------------------- FMA instances -------------------- *)
 
-structure MonOpt : Mon = MkMon(struct
+structure MonOpt : Mon = MkMon(
   type ('x, 'y, 'z, 'a) f = 'a opt
   val ret = Some
   fun bind(Some x, f) = f x
     | bind _ = None
-end)
+)
 
-structure MonSum : Mon = MkMon(struct
+structure MonSum : Mon = MkMon(
   type ('x, 'y, 'a, 'b) f = ('a, 'b) sum
   val ret = Inr
   fun bind(Inr x, f) = f x
     | bind(Inl x, _) = Inl x
-end)
+)
 
-structure MonList : Mon = MkMon(struct
+structure MonList : Mon = MkMon(
   type ('x, 'y, 'z, 'a) f = 'a list
   fun ret x = [x]
   fun bind(xs, f) = List.concat (List.map f xs)
-end)
+)
 
 signature CPS = sig
   include Mon
@@ -217,11 +217,11 @@ signature CPS = sig
 end
 
 structure MonCPS : CPS = let
-  structure M = MkMon(struct
+  structure M = MkMon(
     type ('x, 'y, 'r, 'a) f = ('a -> 'r) -> 'r
     fun ret x k = k x
     fun bind(m, f) k = m(fn x => f x k)
-  end)
+  )
 in
   struct
     open M
@@ -301,58 +301,58 @@ functor MkTOrd(M : MkTOrd) : TOrd = struct
   fun gt xy = case cmp xy of Gt => true | _ => false
 end
 
-structure TOrdBool : TOrd = MkTOrd(struct
+structure TOrdBool : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = bool
   fun cmp(false, true) = Lt
     | cmp(true, false) = Gt
     | cmp _ = Eq
-end)
+)
 
-structure TOrdInt : TOrd = MkTOrd(struct
+structure TOrdInt : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = int
   fun cmp(x, y) = if x < y then Lt else if x = y then Eq else Gt
-end)
+)
 
-structure TOrdChar : TOrd = MkTOrd(struct
+structure TOrdChar : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = char
   fun cmp xy =
     case Char.compare xy
     of LESS => Lt
      | EQUAL => Eq
      | GREATER => Gt
-end)
+)
 
-functor TOrdTup(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(struct
+functor TOrdTup(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = ('x, 'y, 'z) A.t * ('x, 'y, 'z) B.t
   fun cmp((x1, y1), (x2, y2)) =
     case A.cmp(x1, x2)
     of Eq => B.cmp(y1, y2)
      | r => r
-end)
+)
 
-functor TOrdSum(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(struct
+functor TOrdSum(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = (('x, 'y, 'z) A.t, ('x, 'y, 'z) B.t) sum
   fun cmp(Inl _, Inr _) = Lt
     | cmp(Inr _, Inl _) = Gt
     | cmp(Inl x, Inl y) = A.cmp(x, y)
     | cmp(Inr x, Inr y) = B.cmp(x, y)
-end)
+)
 
-functor TOrdOpt(structure A : TOrd) : TOrd = MkTOrd(struct
+functor TOrdOpt(structure A : TOrd) : TOrd = MkTOrd(
   type ('x, 'y, 'z) t = ('x, 'y, 'z) A.t opt
   fun cmp(None, Some _) = Lt
     | cmp(None, None) = Eq
     | cmp(Some _, None) = Gt
     | cmp(Some x, Some y) = A.cmp(x, y)
-end)
+)
 
-functor TOrdList(A : TOrd) : TOrd = MkTOrd(struct
+functor TOrdList(A : TOrd) : TOrd = MkTOrd(
   type ('x, 'y, 'a) t = ('x, 'y, 'a) A.t list
   fun cmp([], []) = Eq
     | cmp([], _::_) = Lt
     | cmp(_::_, []) = Gt
     | cmp(x::xs, y::ys) = case A.cmp(x, y) of Eq => cmp(xs, ys) | c => c
-end)
+)
 
 (* -------------------- Lattices -------------------- *)
 
@@ -367,10 +367,10 @@ signature Lattice = sig
 end
 
 functor TOrdLattice(M : MkTOrd) : Lattice = let
-  structure P = MkPOrd(struct
+  structure P = MkPOrd(
     type ('x, 'y, 'z) t = ('x, 'y, 'z) M.t
     fun cmp xy = Some(M.cmp xy)
-  end)
+  )
 in
   struct
     open P
@@ -509,12 +509,12 @@ end = struct
      | Some(x, xs) => foldl(xs, f(e, x), f)
 end
 
-structure MonLList : Mon = MkMon(struct
+structure MonLList : Mon = MkMon(
   open LList
   type ('x, 'y, 'z, 'a) f = 'a t
   fun ret x = cons(x, emp)
   fun bind(xs, f) = foldr(map(f, xs), emp, app)
-end)
+)
 
 
 (* -------------------- Representing one type as another -------------------- *)
@@ -529,7 +529,7 @@ end
 
 signature Tree = sig
   include Rep (* Representation of one recursive 'layer' *)
-  (* A lazy list of children *)
+  (* A lazy list of immediate subtrees *)
   val subs : ('x, 'y, 'z) t -> ('x, 'y, 'z) t LList.t
 end
 
@@ -583,9 +583,8 @@ end = struct
   fun map(f, m) k = f(m k)
 end
 
-(* -------------------- Generic tries -------------------- *)
+(* -------------------- Maps -------------------- *)
 
-(* A minimal signature for trie-based maps *)
 signature MkMap = sig
   type ('x, 'y, 'z) k (* The type of keys *)
   type ('x, 'y, 'z, 'a) t
@@ -594,7 +593,6 @@ signature MkMap = sig
   val adj : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * ('a opt -> 'a opt) -> ('x, 'y, 'z, 'a) t
 end
 
-(* A more usable signature *)
 signature Map = sig
   include MkMap
   val has : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> bool
@@ -617,26 +615,26 @@ end
 functor MapRep(
   structure A : Rep
   structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.rep
-) : Map = MkMap(struct
+) : Map = MkMap(
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.t
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) M.t
   val emp = M.emp
   fun get_(m, x) = M.get_(m, A.rep x)
   fun adj(m, x, f) = M.adj(m, A.rep x, f)
-end)
+)
 
-(* Map for unit *)
-structure MapUnit : Map = MkMap(struct
+(* -------------------- 'Data-structural boot-strapping' -------------------- *)
+
+structure MapUnit : Map = MkMap(
   type ('x, 'y, 'z) k = unit
   type ('x, 'y, 'z, 'a) t = 'a opt
   val emp = None
   fun get_(Some v, _) = v
     | get_(None, _) = raise NotFound
   fun adj(v, _, f) = f v
-end)
+)
 
-(* Map for product *)
-functor MapProd(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
+functor MapProd(structure A : MkMap; structure B : MkMap) : Map = MkMap(
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k * ('x, 'y, 'z) B.k
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, ('x, 'y, 'z, 'a) B.t) A.t
   val emp = A.emp
@@ -645,10 +643,9 @@ functor MapProd(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
     A.adj(m, x,
      fn None => Some(B.adj(B.emp, y, f))
       | Some m => Some(B.adj(m, y, f)))
-end)
+)
 
-(* Map for sum *)
-functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
+functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(
   type ('x, 'y, 'z) k = (('x, 'y, 'z) A.k, ('x, 'y, 'z) B.k) sum
   type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) A.t * ('x, 'y, 'z, 'a) B.t
   val emp = (A.emp, B.emp)
@@ -656,21 +653,9 @@ functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
     | get_((_, m), Inr x) = B.get_(m, x)
   fun adj((ma, mb), Inl x, f) = (A.adj(ma, x, f), mb)
     | adj((ma, mb), Inr x, f) = (ma, B.adj(mb, x, f))
-end)
+)
 
-(* Map for opt *)
-functor MapOpt(A' : MkMap) : Map = MapRep(struct
-  structure A = struct
-    type ('x, 'y, 'z) t = ('x, 'y, 'z) A'.k opt
-    type ('x, 'y, 'z) rep = (unit, ('x, 'y, 'z) A'.k) sum
-    fun rep None = Inl()
-      | rep(Some v) = Inr v
-  end
-  structure M = MapSum(structure A = MapUnit; structure B = A')
-end)
-
-(* Map for lazy list *)
-functor MapLList(A : MkMap) : Map = MkMap(struct
+functor MapLList(A : MkMap) : Map = MkMap(
   type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k LList.t
   datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
   val emp = M(None, A.emp)
@@ -686,14 +671,23 @@ functor MapLList(A : MkMap) : Map = MkMap(struct
        M(v, A.adj(m, x,
         fn Some m => Some(adj(m, xs, f))
          | None => Some(adj(emp, xs, f))))
-end)
+)
 
-(* Map for tree-like data *)
+functor MapOpt(A' : MkMap) : Map = MapRep(
+  structure A = struct
+    type ('x, 'y, 'z) t = ('x, 'y, 'z) A'.k opt
+    type ('x, 'y, 'z) rep = (unit, ('x, 'y, 'z) A'.k) sum
+    fun rep None = Inl()
+      | rep(Some v) = Inr v
+  end
+  structure M = MapSum(structure A = MapUnit; structure B = A')
+)
+
 functor MapTree(
   structure T : Tree
   (* A map for one "layer" of the tree-like structure *)
   structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) T.rep
-) : Map = MkMap(struct
+) : Map = MkMap(
   structure L = MapLList(MapOpt(MapRep(structure A = T; structure M = M)))
   structure LL = LList
 
@@ -724,10 +718,11 @@ functor MapTree(
        | Some(x, xs) & Some(v, m) => Some(v, adj_l(m, LL.cons(x, xs), f))
        | Some(x, xs) & None => Some(None, adj_l(emp, LL.cons(x, xs), f))))
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
-end)
+)
 
-(* Map for list *)
-functor MapList(A : MkMap) : Map = MapTree(struct
+(* ---------- Map instances ---------- *)
+
+functor MapList(A : MkMap) : Map = MapTree(
   structure T = struct
     type ('x, 'y, 'z) t = ('x, 'y, 'z) A.k list
     type ('x, 'y, 'z) rep = ('x, 'y, 'z) A.k opt
@@ -735,7 +730,7 @@ functor MapList(A : MkMap) : Map = MapTree(struct
     val rep = TreeList.rep
   end
   structure M = MapOpt(A)
-end)
+)
 
 (* -------------------- Tests -------------------- *)
 

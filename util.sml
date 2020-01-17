@@ -674,6 +674,25 @@ functor MapFixExt(M : MapFixExtArg) : Map = struct
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
 end
 
+signature ArgsMapRepr = sig
+  structure A : sig
+    type 'e k
+    type 'e repr
+    val repr : 'e k -> 'e repr
+  end
+  structure M : Map where type 'e k = 'e A.repr
+end
+
+functor MapRepr(X : ArgsMapRepr) : Map = struct
+  open X
+  open A
+  exception NotFound
+  type ('e, 'a) t = ('e, 'a) M.t
+  val emp = M.emp
+  fun get_(m, x) = M.get_(m, repr x)
+  fun adj(m, x, f) = M.adj(m, repr x, f)
+end
+
 (* -------------------- Tests -------------------- *)
 
 structure Tests = struct
@@ -708,34 +727,39 @@ structure Tests = struct
   structure ListTrieTests = struct
     structure ListF = struct
       datatype ('e, 'a) f = NilF | ConsF of 'e * 'a
+      datatype 'e t = Fix of ('e, 'e t) f
       fun map(_, NilF) = NilF
         | map(f, ConsF(x, xs)) = ConsF(x, f xs)
-    end
-    structure FixExtListF = struct
-      open ListF
-      datatype 'e t = Fix of ('e, 'e t) f
       val emp = Fix NilF
       fun cons(x, xs) = Fix(ConsF(x, xs))
       fun fold(Fix xs, g) = g(map(fn x => fold(x, g), xs))
       fun subs(Fix NilF) = LList.emp
         | subs(Fix(ConsF(_, xs))) = LList.cons(xs, LList.emp)
     end
-    structure MapUnitListF : Map = struct
-      open ListF
-      open FixExtListF
-      type 'e k = unit t
-      fun there(Fix NilF) = None
-        | there(Fix(ConsF(x, xs))) = Some x
-      structure M : Map = MapOpt(MapUnit)
-      exception NotFound
-      type ('e, 'a) t = ('e, 'a) M.t
-      val emp = M.emp
-      fun get_(m, x) = M.get_(m, there x)
-      fun adj(m, x, f) = M.adj(m, there x, f)
-    end
+    structure MapUnitListF : Map = MapRepr(struct
+      structure A = struct
+        open ListF
+        type 'e k = unit t
+        type 'e repr = unit opt
+        fun repr(Fix NilF) = None
+          | repr(Fix(ConsF(x, _))) = Some x
+      end
+      structure M = MapOpt(MapUnit)
+    end)
     structure M = MapUnitListF
-    structure L = FixExtListF
+    structure L = ListF
     val _ = chk(0, M.get_(M.emp, L.emp) handle NotFound => 0)
     val _ = chk(3, M.get_(M.adj(M.emp, L.emp, fn _ => Some 3), L.emp) handle NotFound => 0)
+    val _ =
+      let val xs = L.cons((), L.cons((), L.cons((), L.emp))) in
+        chk(4,
+          M.get_(
+            M.adj(M.adj(M.emp, xs, fn _ => Some 4), L.emp, fn _ => Some 3),
+            xs) handle NotFound => 0);
+        chk(3,
+          M.get_(
+            M.adj(M.adj(M.emp, xs, fn _ => Some 4), xs, fn _ => Some 3),
+            xs) handle NotFound => 0)
+      end
   end
 end

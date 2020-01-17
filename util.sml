@@ -19,37 +19,39 @@ fun (f o g) x = f (g x)
 fun opt susp = Some(susp()) handle _ => None
 
 (*
-Naming scheme: for some signature M,
-  signature MkM = minimal definitions needed to make an M
-  functor MkM(M : MkM) : M = build M from minimal definitions
-  signature M' = M extended with various helper functions
-  functor MkM'(M : M) : M' = build M' from M
-  structure FooM : M = a Foo-y implementation of M
+Naming
+- For some signature M,
+    signature MkM = minimal definitions needed to make an M
+    functor MkM(M : MkM) : M = build M from minimal definitions
+    signature M' = M extended with various helper functions
+    functor MkM'(M : M) : M' = build M' from M
+    structure FooM : M = a Foo-y implementation of M
+- f_ might raise; f returns opt
 *)
 
 (* -------------------- Semigroup & co. -------------------- *)
 
 signature Sgp = sig
-  type 'a t (* 'a for extra info since no HKTs *)
-  val dot : 'a t * 'a t -> 'a t
+  type ('x, 'y, 'z) t (* 'x, 'y, 'z for extra info since no HKTs *)
+  val dot : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> ('x, 'y, 'z) t
 end
 
 signature Mnd = sig
   include Sgp
-  val e : 'a t
+  val e : ('x, 'y, 'z) t
 end
 
 signature Grp = sig
   include Sgp
-  val e : 'a t
-  val inv : 'a t -> 'a t
+  val e : ('x, 'y, 'z) t
+  val inv : ('x, 'y, 'z) t -> ('x, 'y, 'z) t
 end
 
 (* -------------------- Semigroup & co. instances -------------------- *)
 
 (* Lex monoid for comparisons *)
 structure MndCmp : Mnd = struct
-  type 'e t = cmp
+  type ('x, 'y, 'z) t = cmp
   fun dot(Eq, x) = x
     | dot(x, _) = x
   val e = Eq
@@ -57,7 +59,7 @@ end
 
 (* + group *)
 structure GrpAddInt : Grp = struct
-  type 'e t = int
+  type ('x, 'y, 'z) t = int
   val dot = op+
   val e = 0
   val inv = op~
@@ -65,21 +67,21 @@ end
 
 (* * monoid *)
 structure MndMulInt : Mnd = struct
-  type 'e t = int
+  type ('x, 'y, 'z) t = int
   val dot = op*
   val e = 1
 end
 
 (* List monoid *)
 structure MndList : Mnd = struct
-  type 'a t = 'a list
+  type ('x, 'y, 'a) t = 'a list
   val dot = List.@
   val e = []
 end
 
 (* Endo monoid *)
 structure MndEndo : Mnd = struct
-  type 'a t = 'a -> 'a
+  type ('x, 'y, 'a) t = 'a -> 'a
   val dot = (op o)
   fun e x = x
 end
@@ -87,7 +89,7 @@ end
 (* ---------- Products ---------- *)
 
 functor SgpTup(structure A : Sgp; structure B : Sgp) : Sgp = struct
-  type 'e t = 'e A.t * 'e B.t
+  type ('x, 'y, 'z) t = ('x, 'y, 'z) A.t * ('x, 'y, 'z) B.t
   fun dot((x1, y1), (x2, y2)) = (A.dot(x1, x2), B.dot(y1, y2))
 end
 
@@ -112,8 +114,8 @@ end
 (* -------------------- Functor -------------------- *)
 
 signature Fun = sig
-  type ('e, 'a) f (* A functor in 'a. 'e for extra info since no HKTs *)
-  val map : ('a -> 'b) * ('e, 'a) f -> ('e, 'b) f
+  type ('x, 'y, 'z, 'a) f (* A functor in 'a *)
+  val map : ('a -> 'b) * ('x, 'y, 'z, 'a) f -> ('x, 'y, 'z, 'b) f
 end
 
 signature Fun1 = sig
@@ -122,7 +124,7 @@ signature Fun1 = sig
 end
 
 functor MkFun(F : Fun1) : Fun = struct
-  type ('e, 'a) f = 'a F.f
+  type ('x, 'y, 'z, 'a) f = 'a F.f
   val map = F.map
 end
 
@@ -130,8 +132,8 @@ end
 
 signature App = sig
   include Fun
-  val ret : 'a -> ('e, 'a) f
-  val ap : ('e, 'a -> 'b) f * ('e, 'a) f -> ('e, 'b) f
+  val ret : 'a -> ('x, 'y, 'z, 'a) f
+  val ap : ('x, 'y, 'z, 'a -> 'b) f * ('x, 'y, 'z, 'a) f -> ('x, 'y, 'z, 'b) f
 end
 
 signature App1 = sig
@@ -153,7 +155,7 @@ functor MkApp(F : App1) : App =
 
 signature Mon = sig
   include App
-  val bind : ('e, 'a) f * ('a -> ('e, 'b) f) -> ('e, 'b) f
+  val bind : ('x, 'y, 'z, 'a) f * ('a -> ('x, 'y, 'z, 'b) f) -> ('x, 'y, 'z, 'b) f
 end
 
 signature Mon1 = sig
@@ -162,9 +164,9 @@ signature Mon1 = sig
 end
 
 signature MkMon = sig
-  type ('e, 'a) f
-  val ret : 'a -> ('e, 'a) f
-  val bind : ('e, 'a) f * ('a -> ('e, 'b) f) -> ('e, 'b) f
+  type ('x, 'y, 'z, 'a) f
+  val ret : 'a -> ('x, 'y, 'z, 'a) f
+  val bind : ('x, 'y, 'z, 'a) f * ('a -> ('x, 'y, 'z, 'b) f) -> ('x, 'y, 'z, 'b) f
 end
 
 functor MkMon1(M : Mon1) : Mon =
@@ -176,7 +178,7 @@ functor MkMon1(M : Mon1) : Mon =
   end
 
 functor MkMon(M : MkMon) : Mon = struct
-  type ('e, 'a) f = ('e, 'a) M.f
+  type ('x, 'y, 'z, 'a) f = ('x, 'y, 'z, 'a) M.f
   val ret = M.ret
   val bind = M.bind
   fun map(f, mx) = bind(mx, fn x => ret(f x))
@@ -186,41 +188,35 @@ end
 (* -------------------- FMA instances -------------------- *)
 
 structure MonOpt : Mon = MkMon(struct
-  type ('e, 'a) f = 'a opt
+  type ('x, 'y, 'z, 'a) f = 'a opt
   val ret = Some
   fun bind(Some x, f) = f x
     | bind _ = None
 end)
 
 structure MonSum : Mon = MkMon(struct
-  type ('e, 'a) f = ('e, 'a) sum
+  type ('x, 'y, 'a, 'b) f = ('a, 'b) sum
   val ret = Inr
   fun bind(Inr x, f) = f x
     | bind(Inl x, _) = Inl x
 end)
 
 structure MonList : Mon = MkMon(struct
-  type ('e, 'a) f = 'a list
+  type ('x, 'y, 'z, 'a) f = 'a list
   fun ret x = [x]
   fun bind(xs, f) = List.concat (List.map f xs)
 end)
 
-structure MonSt : Mon = MkMon(struct
-  type ('e, 'a) f = 'e -> 'e * 'a
-  fun ret x s = (s, x)
-  fun bind(m, f) s = let val (s, x) = m s in f x s end
-end)
-
 signature CPS = sig
   include Mon
-  val run : ('a, 'a) f -> 'a
-  val shift : (('a -> 'r) -> 'r) -> ('r, 'a) f
-  val reset : ('a, 'a) f -> ('r, 'a) f
+  val run : ('x, 'y, 'a, 'a) f -> 'a
+  val shift : (('a -> 'r) -> 'r) -> ('x, 'y, 'r, 'a) f
+  val reset : ('x, 'y, 'a, 'a) f -> ('x, 'y, 'r, 'a) f
 end
 
 structure MonCPS : CPS = let
   structure M = MkMon(struct
-    type ('r, 'a) f = ('a -> 'r) -> 'r
+    type ('x, 'y, 'r, 'a) f = ('a -> 'r) -> 'r
     fun ret x k = k x
     fun bind(m, f) k = m(fn x => f x k)
   end)
@@ -236,19 +232,19 @@ end
 (* -------------------- Orders -------------------- *)
 
 signature Ord = sig
-  type 'a t
-  val le : 'a t * 'a t -> bool
-  val lt : 'a t * 'a t -> bool
-  val eq : 'a t * 'a t -> bool
-  val ne : 'a t * 'a t -> bool
-  val ge : 'a t * 'a t -> bool
-  val gt : 'a t * 'a t -> bool
+  type ('x, 'y, 'z) t
+  val le : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val lt : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val eq : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val ne : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val ge : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val gt : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
 end
 
 signature MkOrd = sig
-  type 'a t
-  val le : 'a t * 'a t -> bool
-  val eq : 'a t * 'a t -> bool
+  type ('x, 'y, 'z) t
+  val le : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
+  val eq : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> bool
 end
 
 functor MkOrd(M : MkOrd) : Ord = struct
@@ -263,12 +259,12 @@ end
 
 signature POrd = sig
   include Ord
-  val cmp : 'a t * 'a t -> cmp opt
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
 end
 
 signature MkPOrd = sig
-  type 'a t
-  val cmp : 'a t * 'a t -> cmp opt
+  type ('x, 'y, 'z) t
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
 end
 
 functor MkPOrd(M : MkPOrd) : POrd = struct
@@ -285,12 +281,12 @@ end
 
 signature TOrd = sig
   include Ord
-  val cmp : 'a t * 'a t -> cmp
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp
 end
 
 signature MkTOrd = sig
-  type 'a t
-  val cmp : 'a t * 'a t -> cmp
+  type ('x, 'y, 'z) t
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp
 end
 
 functor MkTOrd(M : MkTOrd) : TOrd = struct
@@ -304,19 +300,19 @@ functor MkTOrd(M : MkTOrd) : TOrd = struct
 end
 
 structure TOrdBool : TOrd = MkTOrd(struct
-  type 'a t = bool
+  type ('x, 'y, 'z) t = bool
   fun cmp(false, true) = Lt
     | cmp(true, false) = Gt
     | cmp _ = Eq
 end)
 
 structure TOrdInt : TOrd = MkTOrd(struct
-  type 'a t = int
+  type ('x, 'y, 'z) t = int
   fun cmp(x, y) = if x < y then Lt else if x = y then Eq else Gt
 end)
 
 structure TOrdChar : TOrd = MkTOrd(struct
-  type 'a t = char
+  type ('x, 'y, 'z) t = char
   fun cmp xy =
     case Char.compare xy
     of LESS => Lt
@@ -324,8 +320,32 @@ structure TOrdChar : TOrd = MkTOrd(struct
      | GREATER => Gt
 end)
 
+functor TOrdTup(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(struct
+  type ('x, 'y, 'z) t = ('x, 'y, 'z) A.t * ('x, 'y, 'z) B.t
+  fun cmp((x1, y1), (x2, y2)) =
+    case A.cmp(x1, x2)
+    of Eq => B.cmp(y1, y2)
+     | r => r
+end)
+
+functor TOrdSum(structure A : TOrd; structure B : TOrd) : TOrd = MkTOrd(struct
+  type ('x, 'y, 'z) t = (('x, 'y, 'z) A.t, ('x, 'y, 'z) B.t) sum
+  fun cmp(Inl _, Inr _) = Lt
+    | cmp(Inr _, Inl _) = Gt
+    | cmp(Inl x, Inl y) = A.cmp(x, y)
+    | cmp(Inr x, Inr y) = B.cmp(x, y)
+end)
+
+functor TOrdOpt(structure A : TOrd) : TOrd = MkTOrd(struct
+  type ('x, 'y, 'z) t = ('x, 'y, 'z) A.t opt
+  fun cmp(None, Some _) = Lt
+    | cmp(None, None) = Eq
+    | cmp(Some _, None) = Gt
+    | cmp(Some x, Some y) = A.cmp(x, y)
+end)
+
 functor TOrdList(A : TOrd) : TOrd = MkTOrd(struct
-  type 'a t = 'a A.t list
+  type ('x, 'y, 'a) t = ('x, 'y, 'a) A.t list
   fun cmp([], []) = Eq
     | cmp([], _ :: _) = Lt
     | cmp(_ :: _, []) = Gt
@@ -336,17 +356,17 @@ end)
 
 signature Semilattice = sig
   include POrd
-  val join : 'a t * 'a t -> 'a t
+  val join : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> ('x, 'y, 'z) t
 end
 
 signature Lattice = sig
   include Semilattice
-  val meet : 'a t * 'a t -> 'a t
+  val meet : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> ('x, 'y, 'z) t
 end
 
 functor TOrdLattice(M : MkTOrd) : Lattice = let
   structure P = MkPOrd(struct
-    type 'a t = 'a M.t
+    type ('x, 'y, 'z) t = ('x, 'y, 'z) M.t
     fun cmp xy = Some(M.cmp xy)
   end)
 in
@@ -448,19 +468,32 @@ structure RList :> RList = struct
   fun set xsiy = Some(set_ xsiy) handle Index => None
 end
 
-(* -------------------- Lazy lists -------------------- *)
+(* -------------------- Non-memoizing lazy lists -------------------- *)
 
-(* Use linearly! Does not memoize! *)
-structure LList = struct
-  datatype 'a t = LList of unit -> ('a * 'a t) opt | App of 'a t * 'a t
+(* Use linearly! *)
+structure LList :> sig
+  type 'a t
+  val sus : (unit -> ('a * 'a t) opt) -> 'a t
+  val go : 'a t -> ('a * 'a t) opt
+  val emp : 'a t
+  val cons : 'a * 'a t -> 'a t
+  val app : 'a t * 'a t -> 'a t
+  val map : ('a -> 'b) * 'a t -> 'b t
+  val foldr : 'a t * 'b * ('a * 'b -> 'b) -> 'b
+  val foldl : 'a t * 'b * ('b * 'a -> 'b) -> 'b
+end = struct
+  datatype 'a t
+    = LList of unit -> ('a * 'a t) opt
+    | App of 'a t * 'a t
+  val sus = LList
   val emp = LList(fn _ => None)
   fun cons xxs = LList(fn _ => Some xxs)
   fun go(LList xs) = xs()
     | go(App(xs, ys)) = case go xs of None => go ys | r => r
   val app = App
-  fun map(f : 'a -> 'b, xs as LList _) =
+  fun map(f : 'a -> 'b, LList xs) =
       LList (fn _ =>
-        case go xs
+        case xs()
         of Some(x, xs) => Some(f x, map(f, xs))
          | None => None)
     | map(f, App(xs, ys)) = App(map(f, xs), map(f, ys))
@@ -474,64 +507,46 @@ structure LList = struct
      | Some(x, xs) => foldl(xs, f(e, x), f)
 end
 
-(* Use linearly! Does not memoize! *)
 structure MonLList : Mon = MkMon(struct
   open LList
-  type ('e, 'a) f = 'a t
+  type ('x, 'y, 'z, 'a) f = 'a t
   fun ret x = cons(x, emp)
-  fun bind(xs, f) = foldl(map(f, xs), emp, app)
+  fun bind(xs, f) = foldr(map(f, xs), emp, app)
 end)
 
 (* -------------------- Functor fixpoints -------------------- *)
 
 signature Fix = sig
   include Fun
-  datatype 'e t = Fix of ('e, 'e t) f
-  val fold : 'e t * (('e, 'a) f -> 'a) -> 'a
+  type ('x, 'y, 'z) t (* The least fixpoint of f *)
+  val fold : ('x, 'y, 'z) t * (('x, 'y, 'z, 'a) f -> 'a) -> 'a
+  val subs : ('x, 'y, 'z) t -> ('x, 'y, 'z) t LList.t
 end
 
-signature FixExt = sig
-  include Fix
-  val subs : 'e t -> 'e t LList.t
-end
+(* -------------------- Functional maps -------------------- *)
 
-(* -------------------- Map sigs -------------------- *)
-
-(* A minimal signature for maps *)
-signature Map = sig
+functor MapFn(
+  type ('x, 'y, 'z) k
+  val eq : ('x, 'y, 'z) k -> ('x, 'y, 'z) k -> bool
+) : sig
   exception NotFound
-  type 'e k (* The type of keys *)
-  type ('e, 'a) t
-  val emp : ('e, 'a) t
-  val get_ : ('e, 'a) t * 'e k -> 'a
-  val adj : ('e, 'a) t * 'e k * ('a opt -> 'a opt) -> ('e, 'a) t
-end
-
-(* An extended signature for maps *)
-signature ExtMap = sig
+  type ('x, 'y, 'z) k (* The type of keys *)
+  type ('x, 'y, 'z, 'a) t
+  val emp : ('x, 'y, 'z, 'a) t
+  val get : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> 'a opt
+  val get_ : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> 'a
+  val set : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * 'a -> ('x, 'y, 'z, 'a) t
+  val upd : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * ('a -> 'a) -> ('x, 'y, 'z, 'a) t
+  val del : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> ('x, 'y, 'z, 'a) t
+  val adj : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * ('a opt -> 'a opt) -> ('x, 'y, 'z, 'a) t
+  val union : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'a) t
+  val inter : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'a) t
+  val diff : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'a) t
+  val map : ('a -> 'b) * ('x, 'y, 'z, 'a) t -> ('x, 'y, 'z, 'b) t
+end = struct
   exception NotFound
-  type 'e k (* The type of keys *)
-  type ('e, 'a) t
-  val emp : ('e, 'a) t
-  val get : ('e, 'a) t * 'e k -> 'a opt
-  val get_ : ('e, 'a) t * 'e k -> 'a
-  val set : ('e, 'a) t * 'e k * 'a -> ('e, 'a) t
-  val upd : ('e, 'a) t * 'e k * ('a -> 'a) -> ('e, 'a) t
-  val del : ('e, 'a) t * 'e k -> ('e, 'a) t
-  val adj : ('e, 'a) t * 'e k * ('a opt -> 'a opt) -> ('e, 'a) t
-  val union : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
-  val inter : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
-  val diff : ('e, 'a) t * ('e, 'a) t -> ('e, 'a) t
-  val map : ('a -> 'b) * ('e, 'a) t -> ('e, 'b) t
-end
-
-(* -------------------- Map structs -------------------- *)
-
-(* Functional maps *)
-functor ExtMapFun(type 'e k; val eq : 'e k -> 'e k -> bool) : ExtMap = struct
-  exception NotFound
-  type 'e k = 'e k
-  type ('e, 'a) t = 'e k -> 'a
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) k
+  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z) k -> 'a
   fun emp _ = raise NotFound
   fun get_(m, k) = m k
   fun get(m, k) = Some(get_(m, k)) handle NotFound => None
@@ -551,60 +566,91 @@ functor ExtMapFun(type 'e k; val eq : 'e k -> 'e k -> bool) : ExtMap = struct
   fun map(f, m) k = f(m k)
 end
 
-(* Map for unit *)
-structure MapUnit : Map = struct
+(* -------------------- Generic tries -------------------- *)
+
+(* A minimal signature for trie-based maps *)
+signature MkMap = sig
   exception NotFound
-  type 'e k = unit
-  type ('e, 'a) t = 'a opt
+  type ('x, 'y, 'z) k (* The type of keys *)
+  type ('x, 'y, 'z, 'a) t
+  val emp : ('x, 'y, 'z, 'a) t
+  val get_ : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> 'a
+  val adj : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * ('a opt -> 'a opt) -> ('x, 'y, 'z, 'a) t
+end
+
+(* A more usable signature *)
+signature Map = sig
+  include MkMap
+  val has : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> bool
+  val get : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> 'a opt
+  val set : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * 'a -> ('x, 'y, 'z, 'a) t
+  val del : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k -> ('x, 'y, 'z, 'a) t
+  val upd : ('x, 'y, 'z, 'a) t * ('x, 'y, 'z) k * ('a -> 'a) -> ('x, 'y, 'z, 'a) t
+end
+
+functor MkMap(M : MkMap) : Map = struct
+  open M
+  fun get mx = Some(get_ mx) handle NotFound => None
+  fun has mx = case get mx of Some _ => true | None => false
+  fun set(m, x, v) = adj(m, x, fn _ => Some v)
+  fun del(m, x) = adj(m, x, fn _ => None)
+  fun upd(m, x, f) = adj(m, x, fn mv => MonOpt.map(f, mv))
+end
+
+(* Map for unit *)
+structure MapUnit : Map = MkMap(struct
+  exception NotFound
+  type ('x, 'y, 'z) k = unit
+  type ('x, 'y, 'z, 'a) t = 'a opt
   val emp = None
   fun get_(Some v, _) = v
     | get_(None, _) = raise NotFound
   fun adj(v, _, f) = f v
-end
+end)
 
 (* Map for product *)
-functor MapProd(structure A : Map; structure B : Map) : Map = struct
+functor MapProd(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
   exception NotFound
-  type 'e k = 'e A.k * 'e B.k
-  type ('e, 'a) t = ('e, ('e, 'a) B.t) A.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k * ('x, 'y, 'z) B.k
+  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, ('x, 'y, 'z, 'a) B.t) A.t
   val emp = A.emp
   fun get_(m, (x, y)) = B.get_(A.get_(m, x), y)
   fun adj(m, (x, y), f) =
     A.adj(m, x,
      fn None => Some(B.adj(B.emp, y, f))
       | Some m => Some(B.adj(m, y, f)))
-end
+end)
 
 (* Map for sum *)
-functor MapSum(structure A : Map; structure B : Map) : Map = struct
+functor MapSum(structure A : MkMap; structure B : MkMap) : Map = MkMap(struct
   exception NotFound
-  type 'e k = ('e A.k, 'e B.k) sum
-  type ('e, 'a) t = ('e, 'a) A.t * ('e, 'a) B.t
+  type ('x, 'y, 'z) k = (('x, 'y, 'z) A.k, ('x, 'y, 'z) B.k) sum
+  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) A.t * ('x, 'y, 'z, 'a) B.t
   val emp = (A.emp, B.emp)
   fun get_((m, _), Inl x) = A.get_(m, x)
     | get_((_, m), Inr x) = B.get_(m, x)
   fun adj((ma, mb), Inl x, f) = (A.adj(ma, x, f), mb)
     | adj((ma, mb), Inr x, f) = (ma, B.adj(mb, x, f))
-end
+end)
 
 (* Map for opt *)
-functor MapOpt(A : Map) : Map = struct
+functor MapOpt(A : MkMap) : Map = MkMap(struct
   exception NotFound
-  type 'e k = 'e A.k opt
-  type ('e, 'a) t = 'a opt * ('e, 'a) A.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k opt
+  type ('x, 'y, 'z, 'a) t = 'a opt * ('x, 'y, 'z, 'a) A.t
   val emp = (None, A.emp)
   fun get_((Some v, _), None) = v
     | get_((None, _), None) = raise NotFound
     | get_((_, m), Some x) = A.get_(m, x)
   fun adj((v, m), None, f) = (f v, m)
     | adj((v, m), Some x, f) = (v, A.adj(m, x, f))
-end
+end)
 
 (* Map for list *)
-functor MapList(A : Map) : Map = struct
+functor MapList(A : MkMap) : Map = MkMap(struct
   exception NotFound
-  type 'e k = 'e A.k list
-  datatype ('e, 'a) t = M of 'a opt * ('e, ('e, 'a) t) A.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k list
+  datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
   val emp = M(None, A.emp)
   fun get_(M(Some v, _), []) = v
     | get_(M(_, m), x::xs) = get_(A.get_(m, x), xs)
@@ -614,13 +660,13 @@ functor MapList(A : Map) : Map = struct
       M(v, A.adj(m, x,
        fn Some m => Some(adj(m, xs, f))
         | None => Some(adj(emp, xs, f))))
-end
+end)
 
 (* Map for lazy list *)
-functor MapLList(A : Map) : Map = struct
+functor MapLList(A : MkMap) : Map = MkMap(struct
   exception NotFound
-  type 'e k = 'e A.k LList.t
-  datatype ('e, 'a) t = M of 'a opt * ('e, ('e, 'a) t) A.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) A.k LList.t
+  datatype ('x, 'y, 'z, 'a) t = M of 'a opt * ('x, 'y, 'z, ('x, 'y, 'z, 'a) t) A.t
   val emp = M(None, A.emp)
   fun get_(m, xs) =
     case m & LList.go xs
@@ -634,25 +680,24 @@ functor MapLList(A : Map) : Map = struct
        M(v, A.adj(m, x,
         fn Some m => Some(adj(m, xs, f))
          | None => Some(adj(emp, xs, f))))
-end
+end)
 
-(* Map from fixpoints *)
-signature MapFixExtArg = sig
-  structure F : FixExt
+(* Map for fixpoints *)
+functor MapFix(
+  structure F : Fix
   (* A map for one "layer" of F.f *)
-  structure M : Map where type 'e k = 'e F.t
-end
-functor MapFixExt(M : MapFixExtArg) : Map = struct
+  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) F.t
+) : Map = MkMap(struct
   exception NotFound
-  structure L = MapLList(MapOpt(M.M))
+  structure L = MapLList(MapOpt(M))
   structure LL = LList
 
-  type 'e k = 'e M.F.t
-  datatype ('e, 'a) t = M of ('e, 'a opt * ('e, 'a) t) L.t
+  type ('x, 'y, 'z) k = ('x, 'y, 'z) F.t
+  datatype ('x, 'y, 'z, 'a) t = M of ('x, 'y, 'z, 'a opt * ('x, 'y, 'z, 'a) t) L.t
 
   fun smush xs =
     let open MonLList in
-      bind(xs, fn Some x => LL.cons(None, map(Some, M.F.subs x)) | None => LL.emp)
+      bind(xs, fn Some x => LL.cons(None, map(Some, F.subs x)) | None => LL.emp)
     end
 
   val emp = M L.emp
@@ -672,26 +717,26 @@ functor MapFixExt(M : MapFixExtArg) : Map = struct
        | None & None => Some(f None, M L.emp)
        | None & Some(x, xs) => Some(None, adj_l(emp, LL.cons(x, xs), f))))
   fun adj(m, x, f) = adj_l(m, LL.cons(Some x, LL.emp), f)
-end
+end)
 
 signature ArgsMapRepr = sig
   structure A : sig
-    type 'e k
-    type 'e repr
-    val repr : 'e k -> 'e repr
+    type ('x, 'y, 'z) k
+    type ('x, 'y, 'z) repr
+    val repr : ('x, 'y, 'z) k -> ('x, 'y, 'z) repr
   end
-  structure M : Map where type 'e k = 'e A.repr
+  structure M : MkMap where type ('x, 'y, 'z) k = ('x, 'y, 'z) A.repr
 end
 
-functor MapRepr(X : ArgsMapRepr) : Map = struct
+functor MapRepr(X : ArgsMapRepr) : Map = MkMap(struct
   open X
   open A
   exception NotFound
-  type ('e, 'a) t = ('e, 'a) M.t
+  type ('x, 'y, 'z, 'a) t = ('x, 'y, 'z, 'a) M.t
   val emp = M.emp
   fun get_(m, x) = M.get_(m, repr x)
   fun adj(m, x, f) = M.adj(m, repr x, f)
-end
+end)
 
 (* -------------------- Tests -------------------- *)
 
@@ -726,23 +771,24 @@ structure Tests = struct
   end *)
   structure ListTrieTests = struct
     structure ListF = struct
-      datatype ('e, 'a) f = NilF | ConsF of 'e * 'a
-      datatype 'e t = Fix of ('e, 'e t) f
+      datatype ('x, 'y, 'a, 'r) f = NilF | ConsF of 'a * 'r
+      type ('x, 'y, 'a) t = 'a list
       fun map(_, NilF) = NilF
         | map(f, ConsF(x, xs)) = ConsF(x, f xs)
-      val emp = Fix NilF
-      fun cons(x, xs) = Fix(ConsF(x, xs))
-      fun fold(Fix xs, g) = g(map(fn x => fold(x, g), xs))
-      fun subs(Fix NilF) = LList.emp
-        | subs(Fix(ConsF(_, xs))) = LList.cons(xs, LList.emp)
+      val emp = []
+      val cons = (op ::)
+      fun fold([], g) = g[]
+        | fold(x::xs, g) = g(fold(xs, g))
+      fun subs[] = LList.emp
+        | subs(_::xs) = LList.cons(xs, LList.emp)
     end
     structure MapUnitListF : Map = MapRepr(struct
       structure A = struct
         open ListF
-        type 'e k = unit t
-        type 'e repr = unit opt
-        fun repr(Fix NilF) = None
-          | repr(Fix(ConsF(x, _))) = Some x
+        type ('x, 'y, 'z) k = ('x, 'y, unit) t
+        type ('x, 'y, 'z) repr = unit opt
+        fun repr[] = None
+          | repr(x::_) = Some x
       end
       structure M = MapOpt(MapUnit)
     end)
@@ -751,15 +797,9 @@ structure Tests = struct
     val _ = chk(0, M.get_(M.emp, L.emp) handle NotFound => 0)
     val _ = chk(3, M.get_(M.adj(M.emp, L.emp, fn _ => Some 3), L.emp) handle NotFound => 0)
     val _ =
-      let val xs = L.cons((), L.cons((), L.cons((), L.emp))) in
-        chk(4,
-          M.get_(
-            M.adj(M.adj(M.emp, xs, fn _ => Some 4), L.emp, fn _ => Some 3),
-            xs) handle NotFound => 0);
-        chk(3,
-          M.get_(
-            M.adj(M.adj(M.emp, xs, fn _ => Some 4), xs, fn _ => Some 3),
-            xs) handle NotFound => 0)
+      let val xs = [(), (), ()] in
+        chk(4, M.get_(M.set(M.set(M.emp, xs, 4), [], 3), xs) handle NotFound => 0);
+        chk(3, M.get_(M.set(M.set(M.emp, xs, 4), xs, 3), xs) handle NotFound => 0)
       end
   end
 end

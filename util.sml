@@ -1,6 +1,7 @@
 (* -------------------- Notation -------------------- *)
 
-infix &
+infix 0 &
+infix 0 !!
 infixr 9 o 
 infixr 5 ++
 
@@ -30,6 +31,28 @@ Naming
     structure FooM : M = a Foo-y implementation of M
 - f_ might raise; f returns opt
 *)
+
+(* -------------------- Laziness -------------------- *)
+
+structure Sus :> sig
+  type 'a t
+  val go : 'a t -> 'a
+end = struct
+  datatype 'a sus
+    = Sus of unit -> 'a
+    | Val of 'a
+    | Exn of exn
+  type 'a t = 'a sus ref
+  fun go p =
+    case !p
+    of Sus f =>
+         let
+           val r = f() handle e => (p := Exn e; raise e)
+           val _ = p := Val r
+         in r end
+     | Val r => r
+     | Exn e => raise e
+end
 
 (* -------------------- Semigroup & co. -------------------- *)
 
@@ -694,7 +717,7 @@ functor MapTree(
   type ('x, 'y, 'z) k = ('x, 'y, 'z) T.t
   datatype ('x, 'y, 'z, 'a) t = M of ('x, 'y, 'z, 'a opt * ('x, 'y, 'z, 'a) t) L.t
 
-  fun smush xs =
+  fun cat xs =
     let open MonLList in
       bind(xs,
        fn Some x => LL.cons(None, map(Some, T.subs x))
@@ -704,7 +727,7 @@ functor MapTree(
   val emp = M L.emp
 
   fun get_l_(M m, xs) =
-    case L.get_(m, xs) & LL.go(smush xs)
+    case L.get_(m, xs) & LL.go(cat xs)
     of (Some v, _) & None => v
      | (None, _) & None => raise NotFound
      | (_, m) & Some(x, xs) => get_l_(m, LL.cons(x, xs))
@@ -712,7 +735,7 @@ functor MapTree(
 
   fun adj_l(M m, xs, f) =
     M(L.adj(m, xs, fn r =>
-      case LL.go(smush xs) & r
+      case LL.go(cat xs) & r
       of None & Some(v, m) => Some(f v, m)
        | None & None => Some(f None, M L.emp)
        | Some(x, xs) & Some(v, m) => Some(v, adj_l(m, LL.cons(x, xs), f))
@@ -741,8 +764,8 @@ functor MapList(A : MkMap) : Map = MapTree(
   structure M = MapOpt(A)
 )
 
-(* Slow int map for now *)
-structure MapInt : Map = MapTree(
+(* I'm pretty sure this is strictly worse than the RBT below. *)
+structure BitMapInt : Map = MapTree(
   structure T = struct
     type ('x, 'y, 'z) t = int
     type ('x, 'y, 'z) rep = bool
@@ -752,6 +775,102 @@ structure MapInt : Map = MapTree(
   end
   structure M = MapBool
 )
+
+(* ---------- Red-black trees ----------
+   From https://www.cs.kent.ac.uk/people/staff/smk/redblack/Untyped.hs *)
+
+functor RBT(A : TOrd) : Map = struct
+  exception RBTInternal
+  type ('x,'y,'z) k = ('x,'y,'z) A.t
+  datatype color = R | B
+  datatype ('x,'y,'z,'a) t
+    = E
+    | T of color * ('x,'y,'z,'a) t * ('x,'y,'z) A.t * 'a * ('x,'y,'z,'a) t
+  val emp = E
+  fun get_(E,x) = raise NotFound
+    | get_(T(_,a,y,v,b),x) =
+      case A.cmp(x,y)
+      of Lt => get_(a,x)
+       | Eq => v
+       | Gt => get_(b,x)
+  fun get mx = Some(get_ mx) handle NotFound => None
+  fun has mx = (get_ mx; true) handle NotFound => false
+  fun upd(m as E,x,f) = m
+    | upd(T(c,a,y,v,b),x,f) =
+      case A.cmp(x,y)
+      of Lt => T(c,upd(a,x,f),y,v,b)
+       | Eq => T(c,a,y,f v,b)
+       | Gt => T(c,a,y,v,upd(b,x,f))
+  fun red(m as E) = m
+    | red(m as T(R,_,_,_,_)) = m
+    | red(T(B,a,x,v,b)) = T(R,a,x,v,b)
+  fun black(m as E) = m
+    | black(m as T(B,_,_,_,_)) = m
+    | black(T(R,a,x,v,b)) = T(B,a,x,v,b)
+  fun bal(T(R,a,x,u,b),y,v,T(R,c,z,w,d)) = T(R,T(B,a,x,u,b),y,v,T(R,c,z,w,d))
+    | bal(T(R,T(R,a,x,u,b),y,v,c),z,w,d) = T(R,T(B,a,x,u,b),y,v,T(R,c,z,w,d))
+    | bal(T(R,a,x,u,T(R,b,y,v,c)),z,w,d) = T(R,T(B,a,x,u,b),y,v,T(R,c,z,w,d))
+    | bal(a,x,u,T(R,b,y,v,T(R,c,z,w,d))) = T(R,T(B,a,x,u,b),y,v,T(R,c,z,w,d))
+    | bal(a,x,u,T(R,T(R,b,y,v,c),z,w,d)) = T(R,T(B,a,x,u,b),y,v,T(R,c,z,w,d))
+    | bal(a,x,u,b) = T(B,a,x,u,b)
+  and app(E,x) = x
+    | app(x,E) = x
+    | app(T(R,a,x,u,b),T(R,c,y,v,d)) =
+      (case app(b,c)
+       of T(R,b,z,w,c) => T(R,T(R,a,x,u,b),z,w,T(R,c,y,v,d))
+        | bc => T(R,a,x,u,T(R,bc,y,v,d)))
+    | app(T(B,a,x,u,b),T(B,c,y,v,d)) =
+      (case app(b,c)
+       of T(R,b,z,w,c) => T(R,T(B,a,x,u,b),z,w,T(B,c,y,v,d))
+        | bc => bal_l(a,x,u,T(B,bc,y,v,d)))
+    | app(a,T(R,b,x,u,c)) = T(R,app(a,b),x,u,c)
+    | app(T(R,a,x,u,b),c) = T(R,a,x,u,app(b,c))
+  and bal_l(T(R,a,x,u,b),y,v,c) = T(R,T(B,a,x,u,b),y,v,c)
+    | bal_l(bl,x,u,T(B,a,y,v,b)) = bal(bl,x,u,T(R,a,y,v,b))
+    | bal_l(bl,x,u,T(R,T(B,a,y,v,b),z,w,c)) = T(R,T(B,bl,x,u,a),y,v,bal(b,z,w,red c))
+    | bal_l _ = raise RBTInternal
+  and bal_r(a,x,u,T(R,b,y,v,c)) = T(R,a,x,u,T(B,b,y,v,c))
+    | bal_r(T(B,a,x,u,b),y,v,bl) = bal(T(R,a,x,u,b),y,v,bl)
+    | bal_r(T(R,a,x,u,T(B,b,y,v,c)),z,w,bl) = T(R,bal(red a,x,u,b),y,v,T(B,c,z,w,bl))
+    | bal_r _ = raise RBTInternal
+  fun set(m,x,u) =
+    let
+      fun go E = T(R,E,x,u,E)
+        | go(T(B,a,y,v,b)) =
+          (case A.cmp(x,y)
+           of Lt => bal(go a,y,v,b)
+            | Eq => T(B,a,y,u,b)
+            | Gt => bal(a,y,v,go b))
+        | go(T(R,a,y,v,b)) =
+          (case A.cmp(x,y)
+           of Lt => T(R,go a,y,v,b)
+            | Eq => T(R,a,y,u,b)
+            | Gt => T(R,a,y,v,go b))
+    in black(go m) end
+  fun del(m,x) =
+    let
+      fun go E = E
+        | go(T(_,a,y,v,b)) =
+          case A.cmp(x,y)
+          of Lt => go_l(a,y,v,b)
+           | Eq => app(a,b)
+           | Gt => go_r(a,y,v,b)
+      and go_l(a as T(B,_,_,_,_),y,v,b) = bal_l(go a,y,v,b)
+        | go_l(a,y,v,b) = T(R,go a,y,v,b)
+      and go_r(a,y,v,b as T(B,_,_,_,_)) = bal_r(a,y,v,go b)
+        | go_r(a,y,v,b) = T(R,a,y,v,go b)
+    in black(go m) end
+  fun adj(m,x,f) =
+    let val r = get(m,x) in
+      case r & f(r)
+      of _ & Some v => set(m,x,v)
+       | Some _ & None => del(m,x)
+       | None & None => m
+    end
+end
+
+structure MapInt : Map = RBT(TOrdInt)
+structure MapChar : Map = RBT(TOrdChar)
 
 (* -------------------- Tests -------------------- *)
 
@@ -784,6 +903,15 @@ structure Tests = struct
       of End => End
        | Tup(x, xs) => Tup(f x, map(fn(x, y) => (f x, f y), xs))
   end *)
+  structure RBTest = struct
+    structure M = MapInt
+    val _ =
+      let in
+        chk(None, M.get(M.emp, 3));
+        chk(Some true, M.get(M.set(M.emp, 3, true), 3));
+        chk(Some true, M.get(M.set(M.set(M.emp, 3, false), 3, true), 3))
+      end
+  end
   structure ListTrie = struct
     structure M = MapList(MapUnit)
     val _ = chk(None, M.get(M.emp, []))

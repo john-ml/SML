@@ -280,29 +280,7 @@ functor MkOrd(M : MkOrd) : Ord = struct
   fun ge xy = not(lt xy)
 end
 
-(* -------------------- Partial orders -------------------- *)
-
-signature POrd = sig
-  include Ord
-  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
-end
-
-signature MkPOrd = sig
-  type ('x, 'y, 'z) t
-  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
-end
-
-functor MkPOrd(M : MkPOrd) : POrd = struct
-  open M
-  fun le xy = case cmp xy of Some Lt => true | Some Eq => true | _ => false
-  fun lt xy = case cmp xy of Some Lt => true | _ => false
-  fun eq xy = case cmp xy of Some Eq => true | _ => false
-  fun ne xy = case cmp xy of Some Lt => true | Some Gt => true | _ => false
-  fun ge xy = case cmp xy of Some Gt => true | Some Eq => true | _ => false
-  fun gt xy = case cmp xy of Some Gt => true | _ => false
-end
-
-(* -------------------- Total orders -------------------- *)
+(* ---------- Total orders ---------- *)
 
 signature TOrd = sig
   include Ord
@@ -377,7 +355,29 @@ functor TOrdList(A : TOrd) : TOrd = MkTOrd(
     | cmp(x::xs, y::ys) = case A.cmp(x, y) of Eq => cmp(xs, ys) | c => c
 )
 
-(* -------------------- Lattices -------------------- *)
+(* ---------- Partial orders ---------- *)
+
+signature POrd = sig
+  include Ord
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
+end
+
+signature MkPOrd = sig
+  type ('x, 'y, 'z) t
+  val cmp : ('x, 'y, 'z) t * ('x, 'y, 'z) t -> cmp opt
+end
+
+functor MkPOrd(M : MkPOrd) : POrd = struct
+  open M
+  fun le xy = case cmp xy of Some Lt => true | Some Eq => true | _ => false
+  fun lt xy = case cmp xy of Some Lt => true | _ => false
+  fun eq xy = case cmp xy of Some Eq => true | _ => false
+  fun ne xy = case cmp xy of Some Lt => true | Some Gt => true | _ => false
+  fun ge xy = case cmp xy of Some Gt => true | Some Eq => true | _ => false
+  fun gt xy = case cmp xy of Some Gt => true | _ => false
+end
+
+(* ---------- Lattices ---------- *)
 
 signature Semilattice = sig
   include POrd
@@ -538,7 +538,6 @@ structure MonLList : Mon = MkMon(
   fun ret x = cons(x, emp)
   fun bind(xs, f) = foldr(map(f, xs), emp, app)
 )
-
 
 (* -------------------- Representing one type as another -------------------- *)
 
